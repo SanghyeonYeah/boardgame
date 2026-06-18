@@ -1,8 +1,8 @@
 import { supabase } from '../supabase.js';
 
-export default async function handler(req) {
-  // 브라우저 직접 접속(GET)이나 favicon 요청 방어
-  if (req.method !== 'POST') {
+export default async function handler(request) {
+  // 브라우저의 무분별한 GET 요청 및 favicon 요청 방어
+  if (request.method !== 'POST') {
     return new Response(
       JSON.stringify({ 
         error: 'Method not allowed', 
@@ -26,6 +26,8 @@ export default async function handler(req) {
       const y = Math.floor(Math.random() * 17);
       
       if (resources.some(r => r.x === x && r.y === y)) continue;
+
+      // 기물이 배치되는 외곽 2줄(0, 1, 15, 16번 인덱스)에는 자원 생성 금지
       if (x <= 1 || x >= 15 || y <= 1 || y >= 15) continue;
 
       let region = "";
@@ -123,5 +125,4 @@ export default async function handler(req) {
   }
 }
 
-// Vercel Edge Runtime 설정을 켜서 환경 에러를 원천 차단합니다.
 export const config = { runtime: 'edge' };

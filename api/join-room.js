@@ -1,12 +1,13 @@
 import { supabase } from '../supabase.js';
 
-export default async function handler(req) {
-  if (req.method !== 'POST') {
+export default async function handler(request) {
+  if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
   }
 
   try {
-    const { roomCode, playerId } = await req.json(); 
+    const body = await request.json();
+    const { roomCode, playerId } = body; 
 
     const { data: room, error } = await supabase
       .from('rooms')

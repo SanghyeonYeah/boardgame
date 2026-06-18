@@ -1,12 +1,13 @@
 import { supabase } from '../supabase.js';
 
-export default async function handler(req) {
-  if (req.method !== 'POST') {
+export default async function handler(request) {
+  if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
   }
 
   try {
-    const { roomCode, faction, actionType, pieceData } = await req.json();
+    const body = await request.json();
+    const { roomCode, faction, actionType, pieceData } = body;
 
     const { data: room, error } = await supabase.from('rooms').select('*').eq('room_code', roomCode).single();
     if (error || !room) {
@@ -20,11 +21,13 @@ export default async function handler(req) {
     
     const playerCount = room.players.length; 
 
+    // [이벤트 규칙 7] 랜덤 강제 이동 변수 발생
     const isStrangeMove = Math.random() < (faction === 'West' ? 0.25 : 0.08);
     if (isStrangeMove) {
       eventMessage = `[돌발 상황!] 앱의 명령으로 말이 원치 않는 방향으로 이동했습니다! `;
     }
 
+    // --- 액션 1: 이동 및 자원 수집 ---
     if (actionType === 'MOVE_AND_COLLECT') {
       const { targetX, targetY, pieceType } = pieceData;
 
@@ -68,6 +71,7 @@ export default async function handler(req) {
       }
     }
 
+    // --- 액션 2: 외교관 상호작용 (거래 및 동맹) ---
     else if (actionType === 'TRADE_AND_ALLIANCE') {
       const { targetFaction, proposalType } = pieceData;
 
