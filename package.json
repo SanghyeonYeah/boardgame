@@ -1,0 +1,9 @@
+{
+  "name": "gaia-boardgame-server",
+  "version": "1.0.0",
+  "main": "api/create-room.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.4.5"
+  }
+}
