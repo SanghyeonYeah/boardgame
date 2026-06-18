@@ -1,7 +1,28 @@
 import { supabase } from '../supabase.js';
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  // Vercel 자체 응답 객체 확장 (res.status 및 res.json 방어 코드)
+  if (!res.status) {
+    res.status = (statusCode) => {
+      res.statusCode = statusCode;
+      return res;
+    };
+  }
+  if (!res.json) {
+    res.json = (data) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(data));
+      return res;
+    };
+  }
+
+  // 브라우저의 직접 접속(GET)이나 favicon 요청 대응
+  if (req.method !== 'POST') {
+    return res.status(405).json({ 
+      error: 'Method not allowed', 
+      message: '이곳은 가이아 보드게임 API 서버입니다. 앱을 통해 POST로 요청해주세요.' 
+    });
+  }
 
   // 4자리 랜덤 참여 코드 생성
   const roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -21,10 +42,10 @@ export default async function handler(req, res) {
     if (x <= 1 || x >= 15 || y <= 1 || y >= 15) continue;
 
     let region = "";
-    if (y <= 4) region = "north";          // 북부: 적음 (25개)
-    else if (x <= 4) region = "west";     // 서부: 엄청 적음 (10개)
-    else if (x >= 12) region = "east";    // 동부: 그럭저럭 (40개)
-    else region = "southCentral";         // 남부 및 중앙: 풍부함 (75개)
+    if (y <= 4) region = "north";          
+    else if (x <= 4) region = "west";     
+    else if (x >= 12) region = "east";    
+    else region = "southCentral";         
 
     if (currentCounts[region] < targetCounts[region]) {
       resources.push({ x, y, amount: 1 });
@@ -32,9 +53,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2. [진영별 초기 기물 데이터 정의] - 외교관(diplo) 통합 반영
+  // 2. [진영별 초기 기물 데이터 정의]
   const factionsData = {
-    North: { thermal: 6, renew: 5, diplo: 4 }, // 협상가 통합 수치
+    North: { thermal: 6, renew: 5, diplo: 4 }, 
     South: { thermal: 3, renew: 10, diplo: 2 },
     East: { thermal: 3, renew: 6, diplo: 6 },
     West: { thermal: 3, renew: 8, diplo: 4 }
