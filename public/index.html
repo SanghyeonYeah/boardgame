@@ -1,90 +1,61 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <title>보드게임 대시보드</title>
-    <style>
-        .hidden { display: none; }
-        .grid { display: grid; grid-template-columns: repeat(17, 30px); gap: 2px; }
-        .cell { width: 30px; height: 30px; border: 1px solid #ccc; text-align: center; line-height: 30px; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>가이아 보드게임 아레나</title>
+  <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
+  <div class="topbar">
+    <span class="brand">GAIA<span class="dot">·</span>ARENA</span>
+    <span class="spacer"></span>
+    <span class="badge" id="modeBadge">연결 모드 확인 중…</span>
+  </div>
 
-    <div id="lobby-screen">
-        <h1>🎲 보드게임 대기실</h1>
-        <button id="btn-create">방 만들기</button>
-        <hr>
-        <input type="text" id="input-code" placeholder="방 코드 입력">
-        <button id="btn-join">방 입장하기</button>
+  <div class="wrap">
+    <h1>🌍 에너지 보드게임 아레나</h1>
+    <p class="sub">
+      세 가지 게임을 한 곳에서. 방을 만들고 코드를 공유해 친구와 실시간으로 즐기세요.<br />
+      Supabase Realtime 으로 동기화되고, Vercel 로 배포됩니다.
+    </p>
+
+    <div class="grid3">
+      <a class="card gaia" href="/games/gaia/">
+        <div class="emoji">🌐</div>
+        <div class="meta">2–4인 · 실시간 영토전</div>
+        <h2>가이아</h2>
+        <p>17×17 맵에서 자원을 차지하는 하이브리드 전략전. 화석연료 vs 재생에너지, 외교·동맹, 초대형 인프라와 돌발 기후 이벤트까지.</p>
+        <span class="go">플레이 →</span>
+      </a>
+
+      <a class="card chess" href="/games/chess/">
+        <div class="emoji">♟️</div>
+        <div class="meta">2인 · 자원 관리 체스</div>
+        <h2>에너지 변형 체스</h2>
+        <p>전통 체스 규칙 + 에너지바. 기물을 움직일 때 점수만큼 에너지를 소모하고, 특수 필드에서 자원을 채우며 거래하세요.</p>
+        <span class="go">플레이 →</span>
+      </a>
+
+      <a class="card mafia" href="/games/mafia/">
+        <div class="emoji">🕵️</div>
+        <div class="meta">8–12인 · 사회적 추리</div>
+        <h2>에너지 변형 마피아</h2>
+        <p>재생에너지 진영 vs 화석연료 진영 vs 산업 스파이. 가이아의 HP를 지키며 정체를 추리하는 밤낮 토론 게임.</p>
+        <span class="go">플레이 →</span>
+      </a>
     </div>
+  </div>
 
-    <div id="game-screen" class="hidden">
-        <h2>🎮 게임 방: <span id="display-room-code"></span></h2>
-        <p>최근 이벤트: <span id="display-event"></span></p>
-        
-        <div id="board" class="grid"></div>
-        
-        <br>
-        <button id="btn-action">게임 액션 테스트 (턴 진행 등)</button>
-    </div>
-
-    <script>
-        let currentRoomCode = null;
-
-        // [방 만들기 버튼 이벤트]
-        document.getElementById('btn-create').addEventListener('click', async () => {
-            try {
-                const res = await fetch('/api/create-room', { method: 'POST' });
-                const data = await res.json();
-                
-                if (data.roomCode) {
-                    alert(`방이 생성되었습니다! 코드: ${data.roomCode}`);
-                    enterGameScreen(data.roomCode, data.data);
-                } else {
-                    alert('방 생성 실패: ' + data.error);
-                }
-            } catch (err) {
-                console.error(err);
-                alert('네트워크 에러 발생');
-            }
-        });
-
-        // [게임 화면 전환 및 데이터 렌더링]
-        function enterGameScreen(roomCode, roomData) {
-            currentRoomCode = roomCode;
-            document.getElementById('lobby-screen').classList.add('hidden');
-            document.getElementById('game-screen').classList.remove('hidden');
-            document.getElementById('display-room-code').innerText = roomCode;
-            document.getElementById('display-event').innerText = roomData.last_event;
-
-            // 17x17 맵 그리기 로직 (예시)
-            const board = document.getElementById('board');
-            board.innerHTML = '';
-            for (let y = 0; y < 17; y++) {
-                for (let x = 0; x < 17; x++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    // 자원이 있는 좌표라면 표시
-                    const hasResource = roomData.map_resources.some(r => r.x === x && r.y === y);
-                    if (hasResource) cell.style.backgroundColor = '#ffd700';
-                    board.appendChild(cell);
-                }
-            }
-        }
-
-        // [게임 액션 보낼 때 - api/game-action 호출]
-        document.getElementById('btn-action').addEventListener('click', async () => {
-            if (!currentRoomCode) return;
-            
-            const res = await fetch('/api/game-action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomCode: currentRoomCode, action: 'MOVE' })
-            });
-            const data = await res.json();
-            alert(data.message || data.error);
-        });
-    </script>
+  <script type="module">
+    import { HAS_SUPABASE } from '/js/supabase-config.js';
+    const badge = document.getElementById('modeBadge');
+    if (HAS_SUPABASE) {
+      badge.textContent = '🟢 온라인 (Supabase Realtime)';
+    } else {
+      badge.textContent = '🟡 로컬 테스트 모드 (같은 브라우저 전용)';
+      badge.title = 'public/js/supabase-config.js 에 URL/anon key 를 넣으면 온라인 멀티플레이가 활성화됩니다.';
+    }
+  </script>
 </body>
 </html>

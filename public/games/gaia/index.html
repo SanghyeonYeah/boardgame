@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>가이아 · 보드게임 아레나</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .board-wrap { overflow: auto; padding: 10px; background: #0a0e16; border: 1px solid var(--line); border-radius: 12px; }
+    .gboard {
+      display: grid; grid-template-columns: repeat(17, 30px); grid-template-rows: repeat(17, 30px);
+      gap: 1px; background: #1a2334; width: max-content; margin: 0 auto;
+    }
+    .gcell {
+      width: 30px; height: 30px; background: #0f1726; position: relative;
+      display: flex; align-items: center; justify-content: center; font-size: 17px;
+      cursor: pointer; user-select: none;
+    }
+    .gcell.north { background: #101a2b; }
+    .gcell.south { background: #1b1709; }
+    .gcell.west  { background: #170f25; }
+    .gcell.east  { background: #1f0f1a; }
+    .gcell .res { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px #34d399; right: 3px; bottom: 3px; }
+    .gcell .pc { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; border: 2px solid; font-size: 15px; }
+    .gcell.infra { background: repeating-linear-gradient(45deg, #243049, #243049 4px, #2c3a59 4px, #2c3a59 8px); }
+    .gcell.sel { outline: 2px solid #fff; outline-offset: -2px; z-index: 3; }
+    .gcell.legal::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: rgba(74,222,128,.35); }
+    .gcell.legal.cap::after { background: rgba(248,113,113,.5); inset: 4px; }
+    .gcell.turnglow { box-shadow: inset 0 0 0 2px rgba(255,255,255,.15); }
+    .scorebar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .sc { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 13px; min-width: 120px; }
+    .sc .nm { font-weight: 700; }
+    .sc.turn { outline: 2px solid var(--accent); }
+    .timer { font-family: ui-monospace, monospace; font-size: 26px; font-weight: 800; }
+    .pick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .pickbtn { text-align: left; padding: 14px; }
+    .pickbtn small { display: block; color: var(--muted); font-weight: 400; margin-top: 4px; }
+    .pickbtn.taken { opacity: .45; cursor: not-allowed; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .legend span b { color: var(--text); }
+    .layout { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand">GAIA<span class="dot">·</span>ARENA</span>
+    <span class="spacer"></span>
+    <a class="back" href="/">← 홈으로</a>
+  </div>
+
+  <div class="wrap">
+    <h1>🌐 가이아</h1>
+
+    <!-- 로비 -->
+    <div id="lobby"></div>
+
+    <!-- 픽 단계 -->
+    <div id="pickScreen" class="hidden">
+      <div class="banner info">방 코드 <b id="pickCode"></b> — 친구에게 코드를 공유하세요. 각자 진영을 선택한 뒤 방장이 시작합니다.</div>
+      <div class="layout">
+        <div class="panel">
+          <h3>진영 선택 (선착순)</h3>
+          <div class="pick-grid" id="pickGrid"></div>
+          <div style="margin-top:14px" class="controls">
+            <button class="primary hidden" id="startBtn">게임 시작</button>
+            <button class="ghost" id="copyCode2">코드 복사</button>
+          </div>
+          <p class="muted small" id="pickHint" style="margin-top:10px"></p>
+        </div>
+        <div class="panel">
+          <h3>참여자</h3>
+          <div class="players" id="pickPlayers"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 게임 -->
+    <div id="game" class="hidden">
+      <div class="row" style="justify-content:space-between; align-items:flex-start;">
+        <div class="scorebar" id="scorebar"></div>
+        <div style="text-align:right">
+          <div class="muted small">남은 시간</div>
+          <div class="timer" id="timer">40:00</div>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div>
+          <div class="board-wrap">
+            <div class="gboard" id="gboard"></div>
+          </div>
+          <div class="legend">
+            <span>🛢️ <b>화석연료</b> (강함)</span>
+            <span>🌱 <b>재생에너지</b> (약함)</span>
+            <span>🤝 <b>외교관</b></span>
+            <span>⚡ <b>초대형 인프라</b> 3×3</span>
+            <span>● <b>자원</b></span>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <h3 id="turnTitle">대기 중</h3>
+            <p class="muted small" id="turnHint">자신의 턴에 기물을 클릭해 이동하세요.</p>
+            <div class="controls">
+              <button id="createFossilBtn">🛢️ 화석연료 생성 (자원 2)</button>
+              <button id="diploBtn" class="hidden">🤝 외교 제안</button>
+              <button class="ghost" id="passBtn">턴 넘기기</button>
+            </div>
+            <div id="pendingBox" style="margin-top:12px"></div>
+          </div>
+          <div class="panel">
+            <h3>이벤트 로그</h3>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="overBox" class="hidden"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./gaia.js"></script>
+</body>
+</html>

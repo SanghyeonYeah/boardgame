@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>에너지 변형 마피아 · 보드게임 아레나</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .hp { display: flex; align-items: center; gap: 10px; }
+    .hp .hearts { font-size: 26px; letter-spacing: 2px; }
+    .phasebar { display: flex; gap: 10px; align-items: center; margin: 6px 0 16px; flex-wrap: wrap; }
+    .pill { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 13px; }
+    .pill.day { background: rgba(251,191,36,.15); border-color: #fbbf24; }
+    .pill.night { background: rgba(99,102,241,.18); border-color: #6366f1; }
+    .rolecard { border: 2px solid var(--mafia); border-radius: 12px; padding: 14px; background: linear-gradient(180deg, #2a1a25, #1a1320); margin-bottom: 14px; }
+    .rolecard h3 { margin: 0 0 6px; color: var(--mafia); }
+    .rolecard.hidden { display: none; }
+    .players-m { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    @media (max-width:560px){ .players-m { grid-template-columns: 1fr; } }
+    .pm { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+    .pm.dead { opacity: .5; text-decoration: line-through; }
+    .pm .nm { font-weight: 600; }
+    .pm .en { font-family: ui-monospace, monospace; color: var(--warn); font-size: 13px; }
+    .pm .role { font-size: 11px; color: var(--muted); }
+    .pm .act { margin-left: auto; }
+    .pm.voted { outline: 2px solid var(--accent2); }
+    .layout { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
+    @media (max-width: 920px) { .layout { grid-template-columns: 1fr; } }
+    .chat { height: 240px; overflow-y: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-size: 13px; }
+    .chat .c { padding: 2px 0; }
+    .chat .c b { color: var(--accent2); }
+    .priv { height: 180px; overflow-y: auto; background: #1a1320; border: 1px solid var(--mafia); border-radius: 10px; padding: 10px; font-size: 13px; white-space: pre-wrap; }
+    .priv .pm2 { padding: 3px 0; border-bottom: 1px solid #ffffff10; }
+    .tag-hack { color: #38bdf8; } .tag-spy { color: #fbbf24; } .tag-save { color: #4ade80; } .tag-dm { color: #c4b5fd; }
+    .vote-tally { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand">GAIA<span class="dot">·</span>ARENA</span>
+    <span class="spacer"></span>
+    <a class="back" href="/">← 홈으로</a>
+  </div>
+
+  <div class="wrap">
+    <h1>🕵️ 에너지 변형 마피아</h1>
+    <div id="lobby"></div>
+
+    <!-- 대기실 -->
+    <div id="waitRoom" class="hidden">
+      <div class="banner info">방 코드 <b id="wCode"></b> — 8~12명이 모이면 방장이 시작합니다.
+        <button class="sm ghost" id="wCopy" style="margin-left:8px">코드 복사</button></div>
+      <div class="panel">
+        <h3>참여자 (<span id="wCount">0</span>/12)</h3>
+        <div class="players-m" id="wPlayers"></div>
+        <div style="margin-top:14px">
+          <button class="primary hidden" id="wStart">게임 시작</button>
+          <span class="muted small" id="wHint"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 게임 -->
+    <div id="game" class="hidden">
+      <div class="phasebar">
+        <span class="pill" id="phasePill">—</span>
+        <span class="pill">라운드 <b id="roundN">1</b></span>
+        <div class="hp"><span>🌍 가이아</span><span class="hearts" id="hp"></span></div>
+        <span class="spacer"></span>
+        <span class="pill" id="alivePill"></span>
+      </div>
+
+      <div class="rolecard hidden" id="roleCard">
+        <h3 id="roleName"></h3>
+        <div class="muted small" id="roleDesc"></div>
+      </div>
+
+      <div class="layout">
+        <div>
+          <div class="panel">
+            <h3 id="actionTitle">플레이어</h3>
+            <p class="muted small" id="actionHint"></p>
+            <div class="players-m" id="gPlayers"></div>
+            <div style="margin-top:12px" class="row" id="hostControls"></div>
+          </div>
+
+          <div class="panel">
+            <h3>공개 채팅 <span class="muted small">(생존자만 발언)</span></h3>
+            <div class="chat" id="chat"></div>
+            <div class="row" style="margin-top:8px">
+              <input type="text" id="chatInput" placeholder="모두에게 말하기…" />
+              <button id="chatSend">전송</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <select id="dmTo" style="max-width:140px"></select>
+              <input type="text" id="dmInput" placeholder="1:1 비밀 메시지…" />
+              <button id="dmSend">귓속말</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <h3>🔒 나의 비밀 정보</h3>
+            <div class="priv" id="priv"></div>
+          </div>
+          <div class="panel">
+            <h3>진행 기록</h3>
+            <div class="log" id="log"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="overBox"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./mafia.js"></script>
+</body>
+</html>

@@ -1,10 +1,10 @@
 {
-  "name": "gaia-boardgame-server",
+  "name": "gaia-boardgame-arena",
   "version": "1.0.0",
-  "main": "api/create-room.js",
-  "type": "module",
-  "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
-    "dotenv": "^16.4.5"
+  "private": true,
+  "description": "가이아 · 에너지 변형 체스 · 에너지 변형 마피아 — Supabase Realtime + Vercel 정적 웹 보드게임",
+  "scripts": {
+    "dev": "npx --yes serve public -l 3000",
+    "start": "npx --yes serve public -l 3000"
   }
 }
