@@ -12,7 +12,7 @@
 //  실행됩니다(다른 기기와는 연결되지 않음).
 // ============================================================
 
-export const SUPABASE_URL = "";
-export const SUPABASE_ANON_KEY = "";
+export const SUPABASE_URL = process.env.SUPABASE_URL;
+export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 export const HAS_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
