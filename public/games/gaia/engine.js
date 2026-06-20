@@ -18,6 +18,14 @@ export const INFRA_COLLAPSE_AT = 5;
 
 export const DIPLO_FEE = 2; // 외교 비용 (거래·동맹 성사 시 양측 각자 차감)
 
+// 진영별 초기 기물 수 (협상가는 diplo 로 합산)
+const INIT_PIECES = {
+  North: { fossil: 6, renew: 5, diplo: 4 },  // 외교관 2 + 협상가 2
+  South: { fossil: 3, renew: 10, diplo: 2 },
+  East:  { fossil: 3, renew: 6,  diplo: 6 },
+  West:  { fossil: 3, renew: 8,  diplo: 4 },
+};
+
 // 진영 초기 방향: 중앙을 향하는 DIRS 인덱스 (화력발전소 정면 포획에 사용)
 const FACTION_INIT_DIR = { North: 6, South: 1, East: 3, West: 4 };
 
@@ -36,14 +44,15 @@ function inBounds(x, y) { return x >= 0 && y >= 0 && x < SIZE && y < SIZE; }
 
 // ---------- 진영 영역/스폰 정의 ----------
 // 각 진영의 초기 기물 블록(5열) 좌표 모음
-// 체스처럼 끝줄=화력발전소, 다음줄=재생에너지, 앞줄=외교관 (각 5개)
-function typeRows(faction) {
-  const xs = [6, 7, 8, 9, 10], ys = [6, 7, 8, 9, 10];
-  if (faction === 'North') return [xs.map((x) => [x, 0]), xs.map((x) => [x, 1]), xs.map((x) => [x, 2])];
-  if (faction === 'South') return [xs.map((x) => [x, 16]), xs.map((x) => [x, 15]), xs.map((x) => [x, 14])];
-  if (faction === 'East')  return [ys.map((y) => [16, y]), ys.map((y) => [15, y]), ys.map((y) => [14, y])];
-  if (faction === 'West')  return [ys.map((y) => [0, y]), ys.map((y) => [1, y]), ys.map((y) => [2, y])];
-  return [[], [], []];
+// 스폰 블록: 끝줄(플레이어 기준 바로 앞)부터 중앙 방향 순서로 15칸
+// fossil → renew → diplo 순으로 채우면 끝줄=화력발전소, 중간=재생에너지, 앞=외교관
+function spawnBlock(faction) {
+  const cells = [];
+  if (faction === 'North') for (let y = 0; y <= 2; y++) for (let x = 6; x <= 10; x++) cells.push([x, y]);
+  if (faction === 'South') for (let y = 16; y >= 14; y--) for (let x = 6; x <= 10; x++) cells.push([x, y]);
+  if (faction === 'East')  for (let x = 16; x >= 14; x--) for (let y = 6; y <= 10; y++) cells.push([x, y]);
+  if (faction === 'West')  for (let x = 0; x <= 2; x++) for (let y = 6; y <= 10; y++) cells.push([x, y]);
+  return cells;
 }
 
 // 초대형 인프라 3×3 의 좌상단(진영 중앙 시작점)
@@ -112,16 +121,20 @@ function buildBoard(s) {
   s.factions = {};
   let id = 1;
 
-  // 기물 배치 — 끝줄=화력발전소, 중간=재생에너지, 앞줄=외교관 (각 5개)
+  // 기물 배치 — fossil→renew→diplo 순서로 채워 끝줄=화력발전소, 중간=재생에너지, 앞=외교관
   active.forEach((f) => {
     s.factions[f] = { score: 0, allies: [] };
-    const rows = typeRows(f);
+    const block = spawnBlock(f);
+    const c = INIT_PIECES[f];
+    const list = [];
+    for (let i = 0; i < c.fossil; i++) list.push('fossil');
+    for (let i = 0; i < c.renew; i++) list.push('renew');
+    for (let i = 0; i < c.diplo; i++) list.push('diplo');
     const initDir = FACTION_INIT_DIR[f] ?? 4;
-    ['fossil', 'renew', 'diplo'].forEach((type, ti) => {
-      rows[ti].forEach(([x, y]) => {
-        s.pieces.push({ id: id++, faction: f, type, x, y, dir: initDir });
-        occupied.add(key(x, y));
-      });
+    list.forEach((type, i) => {
+      const [x, y] = block[i] ?? block[block.length - 1];
+      s.pieces.push({ id: id++, faction: f, type, x, y, dir: initDir });
+      occupied.add(key(x, y));
     });
   });
 
