@@ -61,7 +61,6 @@ export function createInitialState(hostId, hostName) {
 
 function pushLog(s, m) { s.log.push(m); if (s.log.length > 80) s.log.shift(); }
 function inB(r, c) { return r >= 0 && c >= 0 && r < 8 && c < 8; }
-function opp(c) { return c === 'w' ? 'b' : 'w'; }
 
 // ---------- 의사 합법 이동 생성 ----------
 export function movesFrom(s, r, c) {
@@ -192,14 +191,6 @@ export function applyAction(state, action, fromId) {
   if (action.type !== 'MOVE' && action.type !== 'PASS') return s;
   if (color !== s.turn) return s; // 턴 아님
 
-  if (action.type === 'PASS') {
-    s.energy[color] += 3;
-    s.enPassant = null;
-    pushLog(s, `${color === 'w' ? '백' : '흑'}이(가) 휴식하며 에너지를 충전했습니다(+3). 에너지 ${s.energy[color]}`);
-    s.turn = opp(color);
-    return s;
-  }
-
   // MOVE
   const { from, to } = action;
   const piece = s.board[from[0]][from[1]];
@@ -276,7 +267,8 @@ export function applyAction(state, action, fromId) {
   return s;
 }
 
-function coord([r, c]) { return 'abcdefgh'[c] + (8 - r); }
+export function coord([r, c]) { return 'abcdefgh'[c] + (8 - r); }
+export function opp(c) { return c === 'w' ? 'b' : 'w'; }
 
 function resolveTrade(s, action) {
   if (!s.pending) return s;
