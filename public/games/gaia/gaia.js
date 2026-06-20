@@ -63,7 +63,7 @@ function renderPick(s) {
   const grid = $('pickGrid');
   grid.innerHTML = '';
   const descs = {
-    North: '눈과 얼음의 땅. 화석연료가 풍부하나 재생에너지·자원이 적음.',
+    North: '눈과 얼음의 땅. 화력 발전소가 풍부하나 재생에너지·자원이 적음.',
     South: '온화하고 바람 부는 땅. 재생에너지와 자원이 가장 많음.',
     East: '거대 시장. 외교관이 많아 거래·동맹에 강함.',
     West: '예측불가의 땅. 모든 이벤트 확률이 높지만 자원은 매우 희박.',

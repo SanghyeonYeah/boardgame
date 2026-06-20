@@ -382,7 +382,7 @@ function doMove(s, action, faction) {
     const victimFaction = victim.faction;
     s.pieces = s.pieces.filter((p) => p !== victim);
     s.factions[faction].score += res.value;
-    const vName = victim.type === 'renew' ? '재생에너지' : victim.type === 'fossil' ? '화석연료' : '외교관';
+    const vName = victim.type === 'renew' ? '재생에너지' : victim.type === 'fossil' ? '화력 발전소' : '외교관';
     pushLog(s, `⚔️ ${FACTION_KO[faction]}의 ${typeKo(piece.type)}이(가) ${FACTION_KO[victimFaction]}의 ${vName}을(를) 격파! (+${res.value}자원)`);
     if (res.allianceBreak) {
       breakAlliance(s, faction, victimFaction, '중립 지역에서 동맹 재생에너지 포획');
@@ -414,12 +414,12 @@ function doMove(s, action, faction) {
   }
 }
 
-function typeKo(t) { return t === 'fossil' ? '화석연료' : t === 'renew' ? '재생에너지' : '외교관'; }
+function typeKo(t) { return t === 'fossil' ? '화력 발전소' : t === 'renew' ? '재생에너지' : '외교관'; }
 
-// ---------- 화석연료 생성 (자원 2개 소모) ----------
+// ---------- 화력 발전소 생성 (자원 2개 소모) ----------
 function doCreateFossil(s, faction) {
   if (s.factions[faction].score < 2) { pushLog(s, `자원이 부족합니다(2 필요).`); return; }
-  if (fossilCount(s, faction) >= MAX_FOSSIL) { pushLog(s, `화석연료가 최대치(${MAX_FOSSIL})입니다.`); return; }
+  if (fossilCount(s, faction) >= MAX_FOSSIL) { pushLog(s, `화력 발전소가 최대치(${MAX_FOSSIL})입니다.`); return; }
   // 진영 가장자리 밴드에서 빈 칸 탐색(중앙에서 가까운 순)
   const band = factionBand(faction);
   let spot = null;
@@ -429,7 +429,7 @@ function doCreateFossil(s, faction) {
   if (!spot) { pushLog(s, `생성할 빈 공간이 없습니다.`); return; }
   s.factions[faction].score -= 2;
   s.pieces.push({ id: s.nextId++, faction, type: 'fossil', x: spot[0], y: spot[1], dir: 4 });
-  pushLog(s, `🛢️ ${FACTION_KO[faction]}이(가) 자원 2개로 화석연료를 생성했습니다.`);
+  pushLog(s, `🛢️ ${FACTION_KO[faction]}이(가) 자원 2개로 화력 발전소를 생성했습니다.`);
 }
 
 // ---------- 외교 제안 ----------
@@ -509,13 +509,15 @@ function runEvents(s, faction) {
     if (renews.length && fossilCount(s, faction) < MAX_FOSSIL) {
       const p = renews[rnd(renews.length)];
       p.type = 'fossil';
-      pushLog(s, `🔥 [기후 변수] ${FACTION_KO[faction]}의 재생에너지가 화석연료로 강제 전환되었습니다!`);
+      pushLog(s, `🔥 [기후 변수] ${FACTION_KO[faction]}의 재생에너지가 화력 발전소로 강제 전환되었습니다!`);
       randomNudge(s, p);
     }
   }
 
-  // [이벤트4] 화석연료 과다 → 초대형 인프라 생성
-  tryFormInfra(s, faction, m);
+  // [이벤트4] 매 턴 모든 진영에 대해 초대형 인프라 진화 확률 체크
+  for (const f of Object.keys(s.factions)) {
+    tryFormInfra(s, f, EVENT_MULT[f] || 1);
+  }
 
   // [이벤트7] 돌발 이동: 임의 기물이 이상한 방향으로 이동
   if (Math.random() < 0.07 * m) {
@@ -553,10 +555,11 @@ function infraCount(s, f) { return s.infra.filter((g) => g.faction === f).length
 
 function tryFormInfra(s, faction, m) {
   const fc = fossilCount(s, faction);
-  if (fc < 8) return;
+  if (fc < 4) return;
   if (infraCount(s, faction) >= MAX_INFRA_PER_FACTION) return;
   if (totalInfra(s) >= 9) return;
-  const chance = Math.min(0.5, (fc / MAX_FOSSIL) * 0.3 * m);
+  // 기본 2%, 화력 발전소 1개 추가마다 0.5% 증가 (최대 50%)
+  const chance = Math.min(0.5, (0.02 + (fc - 4) * 0.005) * m);
   if (Math.random() >= chance) return;
 
   const a = infraAnchor(faction);
