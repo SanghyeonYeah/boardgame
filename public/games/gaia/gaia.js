@@ -321,8 +321,6 @@ function renderDiplo(s, targets) {
     offerLabel.textContent = '내가 줄 것:';
     offerLabel.style.display = 'block';
     const offerWidget = makeOfferWidget(`offer_${t}`);
-    wrap.insertBefore(offerLabel, btnRow);
-    wrap.insertBefore(offerWidget, btnRow);
 
     const trade = document.createElement('button');
     trade.className = 'sm'; trade.textContent = '💱 거래';
@@ -347,7 +345,7 @@ function renderDiplo(s, targets) {
     };
 
     btnRow.append(label, trade, ally);
-    wrap.append(termsInput, btnRow);
+    wrap.append(termsInput, offerLabel, offerWidget, btnRow);
     box.appendChild(wrap);
   });
 }
