@@ -2,7 +2,7 @@ import { Net } from '/js/net.js';
 import { renderLobby, toast, logLine, shareCode } from '/js/ui.js';
 import {
   createInitialState, applyAction, movesFrom,
-  VALUE, NAME_KO, GLYPH, fieldAt, coord, opp,
+  VALUE, NAME_KO, GLYPH, fieldAt, coord, opp, MAX_ENERGY,
 } from './engine.js';
 
 const net = new Net('chess');
@@ -63,7 +63,7 @@ function renderEnergy(s, mc) {
   const fill = (el, color) => {
     el.querySelector('.who').textContent = (color === 'w' ? '백' : '흑') + (color === mc ? ' (나)' : '');
     el.querySelector('.en').textContent = `⚡ ${s.energy[color]}`;
-    el.querySelector('.ebar > div').style.width = Math.min(100, (s.energy[color] / 20) * 100) + '%';
+    el.querySelector('.ebar > div').style.width = Math.min(100, (s.energy[color] / MAX_ENERGY) * 100) + '%';
     el.classList.toggle('turn', s.turn === color && s.phase === 'play');
   };
   fill($('epTop'), top);
@@ -154,6 +154,8 @@ function renderTurn(s, mc) {
   if (s.phase === 'wait') { t.textContent = '상대 입장 대기 중…'; }
   else if (s.phase === 'over') { t.textContent = '게임 종료'; }
   else t.textContent = s.turn === mc ? '👉 당신의 턴' : `${s.turn === 'w' ? '백' : '흑'}의 턴`;
+  $('passBtn').disabled = !(s.phase === 'play' && s.turn === mc);
+  $('passBtn').onclick = () => { selected = null; net.dispatch({ type: 'PASS', playerId: net.id }); };
 }
 
 function pieceOptions(s, color) {

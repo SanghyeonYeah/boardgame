@@ -8,6 +8,7 @@
 // ============================================================
 
 export const START_ENERGY = 10;
+export const MAX_ENERGY = 30;
 // 기물 점수(이동 비용). 킹=가이아는 이동 1로 둠(교착 방지).
 export const VALUE = { k: 1, q: 9, r: 5, b: 3, n: 3, p: 1 };
 export const NAME_KO = {
@@ -191,6 +192,14 @@ export function applyAction(state, action, fromId) {
   if (action.type !== 'MOVE' && action.type !== 'PASS') return s;
   if (color !== s.turn) return s; // 턴 아님
 
+  if (action.type === 'PASS') {
+    s.energy[color] = Math.min(MAX_ENERGY, s.energy[color] + 3);
+    s.enPassant = null;
+    pushLog(s, `${color === 'w' ? '백' : '흑'}이(가) 휴식하며 에너지를 충전했습니다(+3). 에너지 ${s.energy[color]}`);
+    s.turn = opp(color);
+    return s;
+  }
+
   // MOVE
   const { from, to } = action;
   const piece = s.board[from[0]][from[1]];
@@ -253,7 +262,7 @@ export function applyAction(state, action, fromId) {
   const field = fieldAt(to[0], to[1]);
   if (field === 'E') {
     const gain = 2 + Math.floor(Math.random() * 5); // 2~6
-    s.energy[color] += gain;
+    s.energy[color] = Math.min(MAX_ENERGY, s.energy[color] + gain);
     pushLog(s, `⚡ 에너지 필드 도달! 자원 카드로 에너지 +${gain} (잔여 ${s.energy[color]})`);
   } else if (field === 'T') {
     pushLog(s, `💱 거래소 도달! 상대와 협상할 수 있습니다.`);
@@ -283,8 +292,10 @@ function resolveTrade(s, action) {
     pushLog(s, '에너지가 부족하여 거래가 무산되었습니다.');
     return s;
   }
-  s.energy[p.from] -= p.offerEnergy; s.energy[responder] += p.offerEnergy;
-  s.energy[responder] -= p.wantEnergy; s.energy[p.from] += p.wantEnergy;
+  s.energy[p.from] -= p.offerEnergy;
+  s.energy[responder] = Math.min(MAX_ENERGY, s.energy[responder] + p.offerEnergy);
+  s.energy[responder] -= p.wantEnergy;
+  s.energy[p.from] = Math.min(MAX_ENERGY, s.energy[p.from] + p.wantEnergy);
 
   // 기물 이전(선택)
   const give = (pieceCoord, fromColor, toColor) => {
