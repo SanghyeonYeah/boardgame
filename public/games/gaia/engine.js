@@ -191,11 +191,18 @@ export function currentFaction(s) {
 // ---------- 이동 유효성 ----------
 export function legalMovesFor(s, piece) {
   const moves = [];
+  const [fdx, fdy] = DIRS[piece.dir] ?? DIRS[4];
   for (const [dx, dy] of DIRS) {
     const tx = piece.x + dx, ty = piece.y + dy;
     if (!inBounds(tx, ty)) continue;
     const r = canMoveInto(s, piece, tx, ty);
-    if (r.ok) moves.push({ tx, ty, kind: r.kind, cap: r.kind === 'capture' });
+    if (!r.ok) continue;
+    // 화석연료가 재생에너지를 잡는 건 정면 1칸만 허용
+    if (piece.type === 'fossil' && r.kind === 'capture') {
+      const target = pieceAt(s, tx, ty);
+      if (target?.type === 'renew' && !(dx === fdx && dy === fdy)) continue;
+    }
+    moves.push({ tx, ty, kind: r.kind, cap: r.kind === 'capture' });
   }
   return moves;
 }
