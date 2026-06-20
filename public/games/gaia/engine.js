@@ -15,6 +15,7 @@ export const FACTION_COLOR = { North: '#60a5fa', South: '#fbbf24', East: '#f472b
 export const MAX_FOSSIL = 40;
 export const MAX_INFRA_PER_FACTION = 3;
 export const INFRA_COLLAPSE_AT = 5;
+export const ALLIANCE_STAKE = 3; // 동맹 파기 시 위약금 (자원)
 
 // 진영별 초기 기물 (협상가는 외교관과 동일 → diplo 로 합산)
 const INIT_PIECES = {
@@ -220,7 +221,13 @@ function canMoveInto(s, piece, tx, ty) {
   const occ = pieceAt(s, tx, ty);
   if (!occ) return { ok: true, kind: 'move' };
   if (occ.faction === piece.faction) return { ok: false };
-  if (areAllies(s, piece.faction, occ.faction)) return { ok: false };
+  if (areAllies(s, piece.faction, occ.faction)) {
+    // 중앙 중립지역에서 동맹 재생에너지 포획 → 허용하되 동맹 파기 플래그 (정면 필터는 legalMovesFor)
+    if (piece.type === 'fossil' && occ.type === 'renew' && regionOf(tx, ty) === 'Center') {
+      return { ok: true, kind: 'capture', value: 5, allianceBreak: true };
+    }
+    return { ok: false };
+  }
   // 적 기물이 있는 경우
   if (piece.type === 'diplo') return { ok: false }; // 외교관은 점령 불가(인접만)
   if (piece.type === 'renew') {
@@ -353,6 +360,35 @@ function finishGame(s, reason) {
   else pushLog(s, `🏁 ${reason}! 승리: ${FACTION_KO[best]} 진영 (${bestScore}자원)`);
 }
 
+// ---------- 동맹 파기 ----------
+function breakAlliance(s, breaker, victim, reason) {
+  if (!areAllies(s, breaker, victim)) return;
+  s.factions[breaker].allies = s.factions[breaker].allies.filter((f) => f !== victim);
+  s.factions[victim].allies = s.factions[victim].allies.filter((f) => f !== breaker);
+
+  // 위약금 지급: ALLIANCE_STAKE 만큼 breaker → victim
+  let debt = ALLIANCE_STAKE;
+  const cash = Math.min(debt, s.factions[breaker].score);
+  s.factions[breaker].score -= cash;
+  s.factions[victim].score += cash;
+  debt -= cash;
+
+  // 부족분: breaker의 재생에너지를 파괴해 충당
+  let killed = 0;
+  if (debt > 0) {
+    const renewals = s.pieces.filter((p) => p.faction === breaker && p.type === 'renew');
+    for (const p of renewals) {
+      if (debt <= 0) break;
+      s.pieces = s.pieces.filter((pp) => pp.id !== p.id);
+      s.factions[victim].score += 1;
+      debt--;
+      killed++;
+    }
+  }
+  const killMsg = killed > 0 ? ` 재생에너지 ${killed}개 파괴로 위약금 충당.` : '';
+  pushLog(s, `⚔️💥 [전쟁 선포!] ${FACTION_KO[breaker]}이(가) ${FACTION_KO[victim]}과(와)의 동맹을 파기했습니다! (${reason}) 위약금 ${ALLIANCE_STAKE}자원 지급.${killMsg}`);
+}
+
 // ---------- 이동 처리 ----------
 function doMove(s, action, faction) {
   const piece = s.pieces.find((p) => p.id === action.pieceId);
@@ -365,20 +401,30 @@ function doMove(s, action, faction) {
 
   if (res.kind === 'capture') {
     const victim = pieceAt(s, tx, ty);
+    const victimFaction = victim.faction;
     s.pieces = s.pieces.filter((p) => p !== victim);
     s.factions[faction].score += res.value;
     const vName = victim.type === 'renew' ? '재생에너지' : victim.type === 'fossil' ? '화석연료' : '외교관';
-    pushLog(s, `⚔️ ${FACTION_KO[faction]}의 ${typeKo(piece.type)}이(가) ${FACTION_KO[victim.faction]}의 ${vName}을(를) 격파! (+${res.value}자원)`);
+    pushLog(s, `⚔️ ${FACTION_KO[faction]}의 ${typeKo(piece.type)}이(가) ${FACTION_KO[victimFaction]}의 ${vName}을(를) 격파! (+${res.value}자원)`);
+    if (res.allianceBreak) {
+      breakAlliance(s, faction, victimFaction, '중립 지역에서 동맹 재생에너지 포획');
+    }
   }
 
   piece.x = tx; piece.y = ty;
 
-  // 자원 수집
+  // 자원 수집 — 동맹 영토 침범 여부 먼저 확인
   const ri = resourceIndexAt(s, tx, ty);
   if (ri !== -1) {
+    const region = regionOf(tx, ty);
+    const allyBreachTarget = (region !== 'Center' && region !== faction && areAllies(s, faction, region))
+      ? region : null;
     s.resources.splice(ri, 1);
     s.factions[faction].score += 1;
     pushLog(s, `💎 ${FACTION_KO[faction]}이(가) 자원 1개를 확보했습니다. (총 ${s.factions[faction].score})`);
+    if (allyBreachTarget) {
+      breakAlliance(s, faction, allyBreachTarget, `${FACTION_KO[allyBreachTarget]} 진영 영토 침범`);
+    }
   }
 
   // 외교관 인접 → 외교 가능 표시(실제 제안은 PROPOSE 액션)
@@ -416,12 +462,22 @@ function doPropose(s, action, faction) {
   const myDiplos = s.pieces.filter((p) => p.faction === faction && p.type === 'diplo');
   const adjacent = myDiplos.some((d) => adjacentEnemyDiplo(s, d).includes(toFaction));
   if (!adjacent) { pushLog(s, `외교관이 ${FACTION_KO[toFaction]} 외교관과 인접해 있지 않습니다.`); return; }
-  if (kind === 'alliance' && activePlayerCount(s) <= 2) {
-    pushLog(s, `2인 플레이에서는 동맹을 맺을 수 없습니다.`); return;
+  if (kind === 'alliance') {
+    if (activePlayerCount(s) <= 2) { pushLog(s, `2인 플레이에서는 동맹을 맺을 수 없습니다.`); return; }
+    // 1:1 제한: 양측 모두 기존 동맹이 없어야 함
+    if (s.factions[faction].allies.length > 0) {
+      pushLog(s, `이미 다른 진영과 동맹 중입니다. 현재 동맹을 먼저 파기하세요.`); return;
+    }
+    if (s.factions[toFaction].allies.length > 0) {
+      pushLog(s, `${FACTION_KO[toFaction]}은(는) 이미 다른 진영과 동맹 중입니다.`); return;
+    }
   }
   const pid = s.nextId++;
   s.pending.push({ id: pid, from: faction, to: toFaction, kind });
-  pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : ${kind === 'alliance' ? '동맹' : '자원 거래'} 제안`);
+  const kindLabel = kind === 'alliance'
+    ? `동맹 제안 (파기 시 위약금 ${ALLIANCE_STAKE}자원)`
+    : '자원 거래 제안';
+  pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : ${kindLabel}`);
 }
 
 function resolveProposal(s, action) {
@@ -445,11 +501,14 @@ function resolveProposal(s, action) {
     if (p.to === 'East') s.factions[p.to].score += 1;
     pushLog(s, `💱 ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 자원 거래 성사! (각 +2자원)`);
   } else if (p.kind === 'alliance') {
+    // 1:1 재확인 (제안 후 다른 동맹이 생겼을 수 있음)
+    if (s.factions[p.from].allies.length > 0 || s.factions[p.to].allies.length > 0) {
+      pushLog(s, `⚠️ 동맹 제안 무효 — 이미 다른 동맹 관계가 존재합니다.`);
+      return s;
+    }
     if (!s.factions[p.from].allies.includes(p.to)) s.factions[p.from].allies.push(p.to);
     if (!s.factions[p.to].allies.includes(p.from)) s.factions[p.to].allies.push(p.from);
-    s.factions[p.from].score += 1;
-    s.factions[p.to].score += 1;
-    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성! (각 +1자원, 상호 공격 불가)`);
+    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성! (파기 시 위약금 ${ALLIANCE_STAKE}자원, 상호 공격 불가. 동맹 파기 조건: 상대 영토 자원 수집 또는 중앙에서 재생에너지 포획)`);
   }
   return s;
 }
