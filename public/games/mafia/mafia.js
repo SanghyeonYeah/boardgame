@@ -290,9 +290,26 @@ function renderOver(s) {
   const box = $('overBox');
   if (s.phase !== 'over') { box.innerHTML = ''; return; }
   const teamKo = { renewable: '🌳 재생에너지 진영', fossil: '🛢️ 화석연료 진영', spy: '🕵️ 산업 스파이' };
-  box.innerHTML = `<div class="panel" style="text-align:center;margin-top:16px">
-    <h2>${teamKo[s.winnerTeam] || '게임 종료'} 승리!</h2>
-    <button class="primary" onclick="location.reload()">새 게임</button></div>`;
+  const sorted = [...s.players].sort((a, b) => b.energy - a.energy);
+  const rows = sorted.map((p, i) => {
+    const role = (s.rolesReveal && s.rolesReveal[p.id]) || (p.revealedRole) || null;
+    const roleStr = role ? ROLE_KO[role] : '?';
+    return `<tr class="${i === 0 ? 'rank1' : ''}${p.alive ? '' : ' dead'}">
+      <td>${i + 1}</td>
+      <td>${escapeHtml(p.name)}${p.id === net.id ? ' <b>(나)</b>' : ''}</td>
+      <td>${roleStr}</td>
+      <td>⚡ ${p.energy}</td>
+      <td>${p.alive ? '생존' : '탈락'}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<div class="panel" style="margin-top:16px">
+    <h2 style="text-align:center">${teamKo[s.winnerTeam] || '게임 종료'} 승리!</h2>
+    <table class="result-table">
+      <thead><tr><th>순위</th><th>이름</th><th>역할</th><th>에너지</th><th>상태</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="text-align:center"><button class="primary" onclick="location.reload()">새 게임</button></div>
+  </div>`;
 }
 
 function flushLog(s) {
@@ -312,5 +329,26 @@ net.onState = (s) => {
   if (key !== prevKey) { myNightTarget = null; prevKey = key; }
   origOnState(s);
 };
+
+function setupEmojiBar(barId, inputId) {
+  const bar = $(barId);
+  if (!bar) return;
+  const EMOJIS = ['🌱','🛢️','⚡','🔥','💡','🌍','🤝','👀','🕵️','❓','✅','❌','💰','🌙','☀️','😊','😈','🤫','🙏','👆','🤔','🫡','🧐','😱','🤐'];
+  EMOJIS.forEach((e) => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'emoji-btn'; btn.textContent = e;
+    btn.onclick = () => {
+      const inp = $(inputId);
+      const s = inp.selectionStart ?? inp.value.length;
+      const en = inp.selectionEnd ?? s;
+      inp.value = inp.value.slice(0, s) + e + inp.value.slice(en);
+      inp.setSelectionRange(s + e.length, s + e.length);
+      inp.focus();
+    };
+    bar.appendChild(btn);
+  });
+}
+setupEmojiBar('chatEmoji', 'chatInput');
+setupEmojiBar('dmEmoji', 'dmInput');
 
 showLobby();
