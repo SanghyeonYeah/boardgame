@@ -242,18 +242,41 @@ function renderTurnPanel(s) {
 function renderDiplo(s, targets) {
   const box = $('pendingBox');
   const allowAlliance = Object.values(s.seats).filter(Boolean).length > 2;
-  box.innerHTML = `<div class="banner info"><b>외교 제안</b> — 인접한 적 외교관 진영을 선택하세요.</div>`;
+  box.innerHTML = `<div class="banner info"><b>외교 제안</b> — 조건을 입력하고 제안 유형을 선택하세요.</div>`;
   targets.forEach((t) => {
     const wrap = document.createElement('div');
-    wrap.className = 'row';
-    wrap.style.marginBottom = '8px';
-    wrap.innerHTML = `<span style="min-width:60px;color:${FACTION_COLOR[t]}">${FACTION_KO[t]}</span>`;
-    const trade = document.createElement('button'); trade.className = 'sm'; trade.textContent = '💱 거래';
-    trade.onclick = () => { net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'trade', playerId: net.id }); diploOpen = false; box.innerHTML = ''; };
-    const ally = document.createElement('button'); ally.className = 'sm'; ally.textContent = '🕊️ 동맹';
-    ally.disabled = !allowAlliance; ally.title = allowAlliance ? '' : '2인 플레이에서는 동맹 불가';
-    ally.onclick = () => { net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'alliance', playerId: net.id }); diploOpen = false; box.innerHTML = ''; };
-    wrap.append(trade, ally);
+    wrap.style.marginBottom = '12px';
+
+    const termsInput = document.createElement('input');
+    termsInput.type = 'text';
+    termsInput.maxLength = 200;
+    termsInput.placeholder = `${FACTION_KO[t]}에게 제안할 조건 (선택)…`;
+    termsInput.style.cssText = 'width:100%;margin-bottom:6px;';
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'row';
+    const label = document.createElement('span');
+    label.style.cssText = `min-width:60px;color:${FACTION_COLOR[t]};font-weight:700;`;
+    label.textContent = FACTION_KO[t];
+
+    const trade = document.createElement('button');
+    trade.className = 'sm'; trade.textContent = '💱 거래';
+    trade.onclick = () => {
+      net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'trade', terms: termsInput.value, playerId: net.id });
+      diploOpen = false; box.innerHTML = '';
+    };
+
+    const ally = document.createElement('button');
+    ally.className = 'sm'; ally.textContent = '🕊️ 동맹';
+    ally.disabled = !allowAlliance;
+    ally.title = allowAlliance ? '' : '2인 플레이에서는 동맹 불가';
+    ally.onclick = () => {
+      net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'alliance', terms: termsInput.value, playerId: net.id });
+      diploOpen = false; box.innerHTML = '';
+    };
+
+    btnRow.append(label, trade, ally);
+    wrap.append(termsInput, btnRow);
     box.appendChild(wrap);
   });
 }
@@ -269,6 +292,13 @@ function renderPending(s) {
     const div = document.createElement('div');
     div.className = 'banner warn';
     div.innerHTML = `<b>${FACTION_KO[p.from]}</b> 진영의 ${p.kind === 'alliance' ? '동맹' : '거래'} 제안`;
+    if (p.terms) {
+      const termsEl = document.createElement('div');
+      termsEl.className = 'muted small';
+      termsEl.style.marginTop = '4px';
+      termsEl.textContent = `📋 조건: ${p.terms}`;
+      div.appendChild(termsEl);
+    }
     const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
     const yes = document.createElement('button'); yes.className = 'primary sm'; yes.textContent = '수락';
     yes.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: true, playerId: net.id });

@@ -15,7 +15,6 @@ export const FACTION_COLOR = { North: '#60a5fa', South: '#fbbf24', East: '#f472b
 export const MAX_FOSSIL = 40;
 export const MAX_INFRA_PER_FACTION = 3;
 export const INFRA_COLLAPSE_AT = 5;
-export const ALLIANCE_STAKE = 3; // 동맹 파기 시 위약금 (자원)
 
 // 진영별 초기 기물 (협상가는 외교관과 동일 → diplo 로 합산)
 const INIT_PIECES = {
@@ -365,28 +364,7 @@ function breakAlliance(s, breaker, victim, reason) {
   if (!areAllies(s, breaker, victim)) return;
   s.factions[breaker].allies = s.factions[breaker].allies.filter((f) => f !== victim);
   s.factions[victim].allies = s.factions[victim].allies.filter((f) => f !== breaker);
-
-  // 위약금 지급: ALLIANCE_STAKE 만큼 breaker → victim
-  let debt = ALLIANCE_STAKE;
-  const cash = Math.min(debt, s.factions[breaker].score);
-  s.factions[breaker].score -= cash;
-  s.factions[victim].score += cash;
-  debt -= cash;
-
-  // 부족분: breaker의 재생에너지를 파괴해 충당
-  let killed = 0;
-  if (debt > 0) {
-    const renewals = s.pieces.filter((p) => p.faction === breaker && p.type === 'renew');
-    for (const p of renewals) {
-      if (debt <= 0) break;
-      s.pieces = s.pieces.filter((pp) => pp.id !== p.id);
-      s.factions[victim].score += 1;
-      debt--;
-      killed++;
-    }
-  }
-  const killMsg = killed > 0 ? ` 재생에너지 ${killed}개 파괴로 위약금 충당.` : '';
-  pushLog(s, `⚔️💥 [전쟁 선포!] ${FACTION_KO[breaker]}이(가) ${FACTION_KO[victim]}과(와)의 동맹을 파기했습니다! (${reason}) 위약금 ${ALLIANCE_STAKE}자원 지급.${killMsg}`);
+  pushLog(s, `⚔️💥 [전쟁 선포!] ${FACTION_KO[breaker]}이(가) ${FACTION_KO[victim]}과(와)의 동맹을 파기했습니다! (${reason}) 합의된 조건에 따라 위약을 처리하세요.`);
 }
 
 // ---------- 이동 처리 ----------
@@ -466,7 +444,9 @@ function doPropose(s, action, faction) {
     pushLog(s, `2인 플레이에서는 동맹을 맺을 수 없습니다.`); return;
   }
   const pid = s.nextId++;
-  s.pending.push({ id: pid, from: faction, to: toFaction, kind });
+  const terms = action.terms ? String(action.terms).slice(0, 200).trim() : '';
+  s.pending.push({ id: pid, from: faction, to: toFaction, kind, terms });
+  const termsMsg = terms ? ` / 조건: "${terms}"` : '';
   if (kind === 'alliance') {
     const warnings = [];
     if (s.factions[faction].allies.length > 0)
@@ -474,9 +454,9 @@ function doPropose(s, action, faction) {
     if (s.factions[toFaction].allies.length > 0)
       warnings.push(`${FACTION_KO[toFaction]}의 기존 동맹 파기`);
     const warnMsg = warnings.length ? ` ⚠️ 수락 시 → ${warnings.join(', ')}` : '';
-    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 동맹 제안 (파기 시 위약금 ${ALLIANCE_STAKE}자원)${warnMsg}`);
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 동맹 제안${termsMsg}${warnMsg}`);
   } else {
-    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 자원 거래 제안`);
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 자원 거래 제안${termsMsg}`);
   }
 }
 
@@ -499,7 +479,8 @@ function resolveProposal(s, action) {
     s.factions[p.to].score += 2;
     if (p.from === 'East') s.factions[p.from].score += 1;
     if (p.to === 'East') s.factions[p.to].score += 1;
-    pushLog(s, `💱 ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 자원 거래 성사! (각 +2자원)`);
+    const tradeTerms = p.terms ? ` / 합의 조건: "${p.terms}"` : '';
+    pushLog(s, `💱 ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 자원 거래 성사! (각 +2자원)${tradeTerms}`);
   } else if (p.kind === 'alliance') {
     // 기존 동맹이 있으면 먼저 파기 (새 동맹 체결이 파기 사유)
     for (const existing of [...(s.factions[p.from].allies || [])]) {
@@ -510,7 +491,8 @@ function resolveProposal(s, action) {
     }
     if (!s.factions[p.from].allies.includes(p.to)) s.factions[p.from].allies.push(p.to);
     if (!s.factions[p.to].allies.includes(p.from)) s.factions[p.to].allies.push(p.from);
-    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성! (파기 시 위약금 ${ALLIANCE_STAKE}자원. 파기 조건: 상대 영토 자원 수집·중앙 재생에너지 포획·다른 진영과 새 동맹 체결)`);
+    const allyTerms = p.terms ? ` / 합의 조건: "${p.terms}"` : '';
+    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성!${allyTerms} (파기 조건: 상대 영토 자원 수집·중앙 재생에너지 포획·다른 진영과 새 동맹 체결)`);
   }
   return s;
 }
