@@ -229,9 +229,8 @@ function canMoveInto(s, piece, tx, ty) {
     if (occ.type === 'diplo') return { ok: true, kind: 'capture', value: 1 };
   }
   if (piece.type === 'fossil') {
-    if (occ.type === 'renew') return { ok: true, kind: 'capture', value: 5 }; // 규칙7
-    if (occ.type === 'fossil') return { ok: true, kind: 'capture', value: 2 };
-    if (occ.type === 'diplo') return { ok: true, kind: 'capture', value: 1 };
+    if (occ.type === 'renew') return { ok: true, kind: 'capture', value: 5 }; // 규칙7, 정면만 허용(legalMovesFor에서 필터)
+    // 화석↔화석, 화석→외교관 포획 불가
   }
   return { ok: false };
 }

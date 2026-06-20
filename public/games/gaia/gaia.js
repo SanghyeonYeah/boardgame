@@ -223,7 +223,7 @@ function renderTurnPanel(s) {
     : '상대의 턴을 기다리는 중…';
 
   const createBtn = $('createFossilBtn');
-  createBtn.disabled = !isMyTurn || (mine && s.factions[mine].score < 2);
+  createBtn.disabled = !isMyTurn || !mine || s.factions[mine].score < 2;
   createBtn.onclick = () => { net.dispatch({ type: 'CREATE_FOSSIL', playerId: net.id }); };
 
   // 외교 버튼
