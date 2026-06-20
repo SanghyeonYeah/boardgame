@@ -462,22 +462,22 @@ function doPropose(s, action, faction) {
   const myDiplos = s.pieces.filter((p) => p.faction === faction && p.type === 'diplo');
   const adjacent = myDiplos.some((d) => adjacentEnemyDiplo(s, d).includes(toFaction));
   if (!adjacent) { pushLog(s, `외교관이 ${FACTION_KO[toFaction]} 외교관과 인접해 있지 않습니다.`); return; }
-  if (kind === 'alliance') {
-    if (activePlayerCount(s) <= 2) { pushLog(s, `2인 플레이에서는 동맹을 맺을 수 없습니다.`); return; }
-    // 1:1 제한: 양측 모두 기존 동맹이 없어야 함
-    if (s.factions[faction].allies.length > 0) {
-      pushLog(s, `이미 다른 진영과 동맹 중입니다. 현재 동맹을 먼저 파기하세요.`); return;
-    }
-    if (s.factions[toFaction].allies.length > 0) {
-      pushLog(s, `${FACTION_KO[toFaction]}은(는) 이미 다른 진영과 동맹 중입니다.`); return;
-    }
+  if (kind === 'alliance' && activePlayerCount(s) <= 2) {
+    pushLog(s, `2인 플레이에서는 동맹을 맺을 수 없습니다.`); return;
   }
   const pid = s.nextId++;
   s.pending.push({ id: pid, from: faction, to: toFaction, kind });
-  const kindLabel = kind === 'alliance'
-    ? `동맹 제안 (파기 시 위약금 ${ALLIANCE_STAKE}자원)`
-    : '자원 거래 제안';
-  pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : ${kindLabel}`);
+  if (kind === 'alliance') {
+    const warnings = [];
+    if (s.factions[faction].allies.length > 0)
+      warnings.push(`${FACTION_KO[faction]}의 기존 동맹 파기`);
+    if (s.factions[toFaction].allies.length > 0)
+      warnings.push(`${FACTION_KO[toFaction]}의 기존 동맹 파기`);
+    const warnMsg = warnings.length ? ` ⚠️ 수락 시 → ${warnings.join(', ')}` : '';
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 동맹 제안 (파기 시 위약금 ${ALLIANCE_STAKE}자원)${warnMsg}`);
+  } else {
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 자원 거래 제안`);
+  }
 }
 
 function resolveProposal(s, action) {
@@ -501,14 +501,16 @@ function resolveProposal(s, action) {
     if (p.to === 'East') s.factions[p.to].score += 1;
     pushLog(s, `💱 ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 자원 거래 성사! (각 +2자원)`);
   } else if (p.kind === 'alliance') {
-    // 1:1 재확인 (제안 후 다른 동맹이 생겼을 수 있음)
-    if (s.factions[p.from].allies.length > 0 || s.factions[p.to].allies.length > 0) {
-      pushLog(s, `⚠️ 동맹 제안 무효 — 이미 다른 동맹 관계가 존재합니다.`);
-      return s;
+    // 기존 동맹이 있으면 먼저 파기 (새 동맹 체결이 파기 사유)
+    for (const existing of [...(s.factions[p.from].allies || [])]) {
+      breakAlliance(s, p.from, existing, `${FACTION_KO[p.to]}과(와) 새 동맹 체결`);
+    }
+    for (const existing of [...(s.factions[p.to].allies || [])]) {
+      breakAlliance(s, p.to, existing, `${FACTION_KO[p.from]}과(와) 새 동맹 체결`);
     }
     if (!s.factions[p.from].allies.includes(p.to)) s.factions[p.from].allies.push(p.to);
     if (!s.factions[p.to].allies.includes(p.from)) s.factions[p.to].allies.push(p.from);
-    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성! (파기 시 위약금 ${ALLIANCE_STAKE}자원, 상호 공격 불가. 동맹 파기 조건: 상대 영토 자원 수집 또는 중앙에서 재생에너지 포획)`);
+    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성! (파기 시 위약금 ${ALLIANCE_STAKE}자원. 파기 조건: 상대 영토 자원 수집·중앙 재생에너지 포획·다른 진영과 새 동맹 체결)`);
   }
   return s;
 }
