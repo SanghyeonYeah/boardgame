@@ -2,7 +2,7 @@ import { Net } from '/js/net.js';
 import { renderLobby, renderPlayers, toast, logLine, shareCode } from '/js/ui.js';
 import {
   createInitialState, applyAction, legalMovesFor, diplomacyTargets,
-  FACTIONS, FACTION_KO, FACTION_COLOR, currentFaction, infraAnchor, MAX_INFRA_PER_FACTION, DIPLO_FEE,
+  FACTIONS, FACTION_KO, FACTION_COLOR, currentFaction, infraAnchor, MAX_INFRA_PER_FACTION, DIPLO_FEE, typeKo,
 } from './engine.js';
 
 const net = new Net('gaia');
@@ -254,6 +254,48 @@ function renderTurnPanel(s) {
   $('passBtn').onclick = () => { selected = null; net.dispatch({ type: 'PASS', playerId: net.id }); };
 }
 
+// 자원 또는 기물을 선택하는 입력 위젯
+function makeOfferWidget(prefix) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin:4px 0 6px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;';
+
+  const mkRadio = (val, label, checked) => {
+    const id = `${prefix}_${val}`;
+    const r = document.createElement('input');
+    r.type = 'radio'; r.name = `${prefix}_ot`; r.value = val; r.id = id; r.checked = checked;
+    const l = document.createElement('label');
+    l.htmlFor = id; l.textContent = label; l.style.marginRight = '4px';
+    return { r, l };
+  };
+
+  const { r: radRes, l: labRes } = mkRadio('resource', '자원', true);
+  const { r: radPc, l: labPc } = mkRadio('piece', '기물', false);
+
+  const secRes = document.createElement('span');
+  const amtInput = document.createElement('input');
+  amtInput.type = 'number'; amtInput.min = '0'; amtInput.value = '0'; amtInput.style.width = '70px';
+  secRes.append(amtInput, ' 개');
+
+  const secPc = document.createElement('span');
+  secPc.style.display = 'none';
+  const typeSelect = document.createElement('select');
+  [['fossil', '🛢️ 화력발전소'], ['renew', '🌱 재생에너지'], ['diplo', '🤝 외교관']].forEach(([v, t]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = t; typeSelect.appendChild(o);
+  });
+  const cntInput = document.createElement('input');
+  cntInput.type = 'number'; cntInput.min = '1'; cntInput.value = '1'; cntInput.style.width = '55px';
+  secPc.append(typeSelect, ' ', cntInput, ' 개');
+
+  const tog = () => { secRes.style.display = radPc.checked ? 'none' : ''; secPc.style.display = radPc.checked ? '' : 'none'; };
+  radRes.onchange = tog; radPc.onchange = tog;
+
+  wrap.append(radRes, labRes, radPc, labPc, secRes, secPc);
+  wrap.getValue = () => radRes.checked
+    ? { type: 'resource', amount: parseInt(amtInput.value) || 0 }
+    : { type: 'piece', pieceType: typeSelect.value, pieceCount: parseInt(cntInput.value) || 1 };
+  return wrap;
+}
+
 function renderDiplo(s, targets) {
   const box = $('pendingBox');
   const allowAlliance = Object.values(s.seats).filter(Boolean).length > 2;
@@ -274,23 +316,23 @@ function renderDiplo(s, targets) {
     label.style.cssText = `min-width:60px;color:${FACTION_COLOR[t]};font-weight:700;`;
     label.textContent = FACTION_KO[t];
 
-    const offerRow = document.createElement('div');
-    offerRow.className = 'row';
-    offerRow.style.marginBottom = '6px';
     const offerLabel = document.createElement('span');
     offerLabel.className = 'muted small';
-    offerLabel.textContent = '내가 줄 자원: ';
-    const offerInput = document.createElement('input');
-    offerInput.type = 'number'; offerInput.min = '0'; offerInput.value = '0';
-    offerInput.style.width = '70px';
-    offerRow.append(offerLabel, offerInput);
-    wrap.insertBefore(offerRow, btnRow);
+    offerLabel.textContent = '내가 줄 것:';
+    offerLabel.style.display = 'block';
+    const offerWidget = makeOfferWidget(`offer_${t}`);
+    wrap.insertBefore(offerLabel, btnRow);
+    wrap.insertBefore(offerWidget, btnRow);
 
     const trade = document.createElement('button');
     trade.className = 'sm'; trade.textContent = '💱 거래';
     trade.onclick = () => {
+      const offer = offerWidget.getValue();
       net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'trade',
-        fromOffer: parseInt(offerInput.value) || 0,
+        fromOfferType: offer.type,
+        fromOfferAmount: offer.amount ?? 0,
+        fromOfferPieceType: offer.pieceType,
+        fromOfferPieceCount: offer.pieceCount,
         terms: termsInput.value, playerId: net.id });
       diploOpen = false; box.innerHTML = '';
     };
@@ -324,18 +366,31 @@ function renderPending(s) {
     const div = document.createElement('div');
     div.className = 'banner warn';
     if (p.kind === 'trade' && p.status === 'need_counter') {
+      const fOffer = p.fromOffer;
+      const fromDesc = fOffer.type === 'resource' ? `자원 ${fOffer.amount}개` : `${typeKo(fOffer.pieceType)} ${fOffer.pieceCount}개`;
       div.innerHTML = `<b style="color:${FACTION_COLOR[p.from]}">${FACTION_KO[p.from]}</b>의 거래 제안
-        <br>상대가 줄 자원: <b>${p.fromOffer}</b>
+        <br>상대가 제공: <b>${fromDesc}</b>
         ${p.terms ? `<div class="muted small" style="margin-top:4px">📋 조건: ${p.terms}</div>` : ''}`;
-      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
-      const inp = document.createElement('input');
-      inp.type = 'number'; inp.min = '0'; inp.value = '0'; inp.placeholder = '내가 줄 자원';
-      inp.style.width = '100px';
+      const counterLabel = document.createElement('div');
+      counterLabel.className = 'muted small';
+      counterLabel.style.marginTop = '8px';
+      counterLabel.textContent = '내가 줄 것:';
+      const counterWidget = makeOfferWidget(`counter_${p.id}`);
+      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '6px';
       const yes = document.createElement('button'); yes.className = 'primary sm'; yes.textContent = '맞거래 제안';
-      yes.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: true, toOffer: parseInt(inp.value) || 0, playerId: net.id });
+      yes.onclick = () => {
+        const offer = counterWidget.getValue();
+        net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: true,
+          toOfferType: offer.type,
+          toOfferAmount: offer.amount ?? 0,
+          toOfferPieceType: offer.pieceType,
+          toOfferPieceCount: offer.pieceCount,
+          playerId: net.id });
+      };
       const no = document.createElement('button'); no.className = 'sm'; no.textContent = '거절';
       no.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: false, playerId: net.id });
-      row.append(inp, yes, no); div.appendChild(row);
+      row.append(yes, no);
+      div.append(counterLabel, counterWidget, row);
     } else if (p.kind === 'alliance') {
       div.innerHTML = `<b style="color:${FACTION_COLOR[p.from]}">${FACTION_KO[p.from]}</b>의 동맹 제안
         ${p.terms ? `<div class="muted small" style="margin-top:4px">📋 조건: ${p.terms}</div>` : ''}
@@ -353,8 +408,11 @@ function renderPending(s) {
   awaitConfirm.forEach((p) => {
     const div = document.createElement('div');
     div.className = 'banner info';
+    const fOf = p.fromOffer, tOf = p.toOffer;
+    const fDesc = fOf.type === 'resource' ? `자원 ${fOf.amount}개` : `${typeKo(fOf.pieceType)} ${fOf.pieceCount}개`;
+    const tDesc = tOf.type === 'resource' ? `자원 ${tOf.amount}개` : `${typeKo(tOf.pieceType)} ${tOf.pieceCount}개`;
     div.innerHTML = `<b style="color:${FACTION_COLOR[p.to]}">${FACTION_KO[p.to]}</b>의 맞거래 도착
-      <br>내가 줄: <b>${p.fromOffer}</b> → 내가 받을: <b>${p.toOffer}</b>
+      <br>내가 줄: <b>${fDesc}</b> → 내가 받을: <b>${tDesc}</b>
       ${p.terms ? `<div class="muted small" style="margin-top:4px">📋 조건: ${p.terms}</div>` : ''}
       <div class="muted small">확정 시 외교비 자원 −${DIPLO_FEE} 양측</div>`;
     const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';

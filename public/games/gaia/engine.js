@@ -182,6 +182,27 @@ function pieceAt(s, x, y) { return s.pieces.find((p) => p.x === x && p.y === y);
 function infraCovering(s, x, y) {
   return s.infra.find((g) => x >= g.x && x < g.x + 3 && y >= g.y && y < g.y + 3);
 }
+
+// 기물 이전: fromFaction의 pieceType count개를 toFaction 스폰존에 새로 생성
+function transferPieces(s, fromFaction, toFaction, pieceType, count) {
+  let removed = 0;
+  const toRemove = [];
+  for (const p of s.pieces) {
+    if (removed >= count) break;
+    if (p.faction === fromFaction && p.type === pieceType) { toRemove.push(p.id); removed++; }
+  }
+  s.pieces = s.pieces.filter((p) => !toRemove.includes(p.id));
+  const band = factionBand(toFaction);
+  for (let i = 0; i < removed; i++) {
+    for (const [x, y] of band) {
+      if (!pieceAt(s, x, y) && !infraCovering(s, x, y)) {
+        s.pieces.push({ id: s.nextId++, faction: toFaction, type: pieceType, x, y, dir: FACTION_INIT_DIR[toFaction] ?? 4 });
+        break;
+      }
+    }
+  }
+  return removed;
+}
 function resourceIndexAt(s, x, y) { return s.resources.findIndex((r) => r.x === x && r.y === y); }
 function fossilCount(s, f) { return s.pieces.filter((p) => p.faction === f && p.type === 'fossil').length; }
 function areAllies(s, a, b) {
@@ -422,7 +443,7 @@ function doMove(s, action, faction) {
   }
 }
 
-function typeKo(t) { return t === 'fossil' ? '화력 발전소' : t === 'renew' ? '재생에너지' : '외교관'; }
+export function typeKo(t) { return t === 'fossil' ? '화력 발전소' : t === 'renew' ? '재생에너지' : '외교관'; }
 
 // ---------- 화력 발전소 생성 (자원 2개 소모) ----------
 function doCreateFossil(s, faction) {
@@ -453,12 +474,20 @@ function doPropose(s, action, faction) {
   const pid = s.nextId++;
   const terms = action.terms ? String(action.terms).slice(0, 200).trim() : '';
   if (kind === 'trade') {
-    const fromOffer = Math.max(0, parseInt(action.fromOffer) || 0);
-    if (s.factions[faction].score < fromOffer) {
-      pushLog(s, `💸 자원 부족 (제안: ${fromOffer}, 보유: ${s.factions[faction].score})`); return;
+    const ofType = action.fromOfferType === 'piece' ? 'piece' : 'resource';
+    const fromOffer = ofType === 'resource'
+      ? { type: 'resource', amount: Math.max(0, parseInt(action.fromOfferAmount) || 0) }
+      : { type: 'piece', pieceType: action.fromOfferPieceType || 'fossil', pieceCount: Math.max(1, parseInt(action.fromOfferPieceCount) || 1) };
+    if (fromOffer.type === 'resource' && s.factions[faction].score < fromOffer.amount) {
+      pushLog(s, `💸 자원 부족 (제안: ${fromOffer.amount}, 보유: ${s.factions[faction].score})`); return;
     }
+    if (fromOffer.type === 'piece') {
+      const have = s.pieces.filter((p) => p.faction === faction && p.type === fromOffer.pieceType).length;
+      if (have < fromOffer.pieceCount) { pushLog(s, `💸 ${typeKo(fromOffer.pieceType)} 부족 (제안: ${fromOffer.pieceCount}, 보유: ${have})`); return; }
+    }
+    const offerDesc = fromOffer.type === 'resource' ? `자원 ${fromOffer.amount}` : `${typeKo(fromOffer.pieceType)} ${fromOffer.pieceCount}개`;
     s.pending.push({ id: pid, from: faction, to: toFaction, kind: 'trade', fromOffer, toOffer: null, terms, status: 'need_counter' });
-    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 거래 제안 (제공: 자원 ${fromOffer}${terms ? `, 조건: "${terms}"` : ''})`);
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 거래 제안 (제공: ${offerDesc}${terms ? `, 조건: "${terms}"` : ''})`);
   } else {
     const warnings = [];
     if (s.factions[faction].allies.length > 0) warnings.push(`${FACTION_KO[faction]}의 기존 동맹 파기`);
@@ -486,12 +515,20 @@ function resolveProposal(s, action) {
         pushLog(s, `❌ ${FACTION_KO[p.to]}이(가) 거래를 거절했습니다.`);
         return s;
       }
-      const toOffer = Math.max(0, parseInt(action.toOffer) || 0);
-      if (s.factions[p.to].score < toOffer) {
-        pushLog(s, `💸 ${FACTION_KO[p.to]} 자원 부족 (필요: ${toOffer})`); return s;
+      const toType = action.toOfferType === 'piece' ? 'piece' : 'resource';
+      const toOffer = toType === 'resource'
+        ? { type: 'resource', amount: Math.max(0, parseInt(action.toOfferAmount) || 0) }
+        : { type: 'piece', pieceType: action.toOfferPieceType || 'fossil', pieceCount: Math.max(1, parseInt(action.toOfferPieceCount) || 1) };
+      if (toOffer.type === 'resource' && s.factions[p.to].score < toOffer.amount) {
+        pushLog(s, `💸 ${FACTION_KO[p.to]} 자원 부족 (필요: ${toOffer.amount})`); return s;
+      }
+      if (toOffer.type === 'piece') {
+        const have = s.pieces.filter((q) => q.faction === p.to && q.type === toOffer.pieceType).length;
+        if (have < toOffer.pieceCount) { pushLog(s, `💸 ${FACTION_KO[p.to]} ${typeKo(toOffer.pieceType)} 부족`); return s; }
       }
       p.toOffer = toOffer; p.status = 'need_confirm';
-      pushLog(s, `🔄 ${FACTION_KO[p.to]}이(가) 맞거래 제안: 자원 ${toOffer} — ${FACTION_KO[p.from]}의 확정 대기`);
+      const toDesc = toOffer.type === 'resource' ? `자원 ${toOffer.amount}` : `${typeKo(toOffer.pieceType)} ${toOffer.pieceCount}개`;
+      pushLog(s, `🔄 ${FACTION_KO[p.to]}이(가) 맞거래 제안: ${toDesc} — ${FACTION_KO[p.from]}의 확정 대기`);
       return s;
     }
     // 2단계: 제안자 최종 확정 또는 취소 (양쪽 모두 취소 가능)
@@ -502,13 +539,42 @@ function resolveProposal(s, action) {
       }
       if (!isProposer) return s;
       const fA = s.factions[p.from], fB = s.factions[p.to];
-      const costA = p.fromOffer + DIPLO_FEE, costB = p.toOffer + DIPLO_FEE;
-      if (fA.score < costA) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.from]} 자원 부족 (필요 ${costA})`); return s; }
-      if (fB.score < costB) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.to]} 자원 부족 (필요 ${costB})`); return s; }
-      fA.score -= costA; fB.score -= costB;
-      fA.score += p.toOffer; fB.score += p.fromOffer;
+      // 자원 보유 체크 (외교비 + 자원 제공분)
+      const scoreNeedA = DIPLO_FEE + (p.fromOffer.type === 'resource' ? p.fromOffer.amount : 0);
+      const scoreNeedB = DIPLO_FEE + (p.toOffer.type === 'resource' ? p.toOffer.amount : 0);
+      if (fA.score < scoreNeedA) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.from]} 자원 부족 (필요 ${scoreNeedA})`); return s; }
+      if (fB.score < scoreNeedB) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.to]} 자원 부족 (필요 ${scoreNeedB})`); return s; }
+      // 기물 보유 체크
+      if (p.fromOffer.type === 'piece') {
+        const have = s.pieces.filter((q) => q.faction === p.from && q.type === p.fromOffer.pieceType).length;
+        if (have < p.fromOffer.pieceCount) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.from]} ${typeKo(p.fromOffer.pieceType)} 부족`); return s; }
+      }
+      if (p.toOffer.type === 'piece') {
+        const have = s.pieces.filter((q) => q.faction === p.to && q.type === p.toOffer.pieceType).length;
+        if (have < p.toOffer.pieceCount) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.to]} ${typeKo(p.toOffer.pieceType)} 부족`); return s; }
+      }
+      // 외교비 차감
+      fA.score -= DIPLO_FEE; fB.score -= DIPLO_FEE;
+      // A의 offer 실행
+      let fromDesc;
+      if (p.fromOffer.type === 'resource') {
+        fA.score -= p.fromOffer.amount; fB.score += p.fromOffer.amount;
+        fromDesc = `자원 ${p.fromOffer.amount}`;
+      } else {
+        const n = transferPieces(s, p.from, p.to, p.fromOffer.pieceType, p.fromOffer.pieceCount);
+        fromDesc = `${typeKo(p.fromOffer.pieceType)} ${n}개`;
+      }
+      // B의 offer 실행
+      let toDesc;
+      if (p.toOffer.type === 'resource') {
+        fB.score -= p.toOffer.amount; fA.score += p.toOffer.amount;
+        toDesc = `자원 ${p.toOffer.amount}`;
+      } else {
+        const n = transferPieces(s, p.to, p.from, p.toOffer.pieceType, p.toOffer.pieceCount);
+        toDesc = `${typeKo(p.toOffer.pieceType)} ${n}개`;
+      }
       const termsMsg = p.terms ? ` / 조건: "${p.terms}"` : '';
-      pushLog(s, `✅ 거래 성사! ${FACTION_KO[p.from]}(−${p.fromOffer}→+${p.toOffer}) ↔ ${FACTION_KO[p.to]}(−${p.toOffer}→+${p.fromOffer}) [외교비 −${DIPLO_FEE} 각자]${termsMsg}`);
+      pushLog(s, `✅ 거래 성사! ${FACTION_KO[p.from]}(제공: ${fromDesc}) ↔ ${FACTION_KO[p.to]}(제공: ${toDesc}) [외교비 −${DIPLO_FEE} 각자]${termsMsg}`);
       return s;
     }
     return s;
