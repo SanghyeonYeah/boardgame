@@ -16,13 +16,10 @@ export const MAX_FOSSIL = 40;
 export const MAX_INFRA_PER_FACTION = 3;
 export const INFRA_COLLAPSE_AT = 5;
 
-// 진영별 초기 기물 (협상가는 외교관과 동일 → diplo 로 합산)
-const INIT_PIECES = {
-  North: { fossil: 6, renew: 5, diplo: 4 },
-  South: { fossil: 3, renew: 10, diplo: 2 },
-  East:  { fossil: 3, renew: 6, diplo: 6 },
-  West:  { fossil: 3, renew: 8, diplo: 4 },
-};
+export const DIPLO_FEE = 2; // 외교 비용 (거래·동맹 성사 시 양측 각자 차감)
+
+// 진영 초기 방향: 중앙을 향하는 DIRS 인덱스 (화력발전소 정면 포획에 사용)
+const FACTION_INIT_DIR = { North: 6, South: 1, East: 3, West: 4 };
 
 // 진영별 돌발/전환 확률 배수 (서부가 모든 이벤트 확률이 높음)
 const EVENT_MULT = { North: 1, South: 1, East: 1, West: 2.6 };
@@ -39,13 +36,14 @@ function inBounds(x, y) { return x >= 0 && y >= 0 && x < SIZE && y < SIZE; }
 
 // ---------- 진영 영역/스폰 정의 ----------
 // 각 진영의 초기 기물 블록(5열) 좌표 모음
-function spawnBlock(faction) {
-  const cells = [];
-  if (faction === 'North') for (let y = 0; y <= 2; y++) for (let x = 6; x <= 10; x++) cells.push([x, y]);
-  if (faction === 'South') for (let y = 14; y <= 16; y++) for (let x = 6; x <= 10; x++) cells.push([x, y]);
-  if (faction === 'East')  for (let x = 14; x <= 16; x++) for (let y = 6; y <= 10; y++) cells.push([x, y]);
-  if (faction === 'West')  for (let x = 0; x <= 2; x++) for (let y = 6; y <= 10; y++) cells.push([x, y]);
-  return cells;
+// 체스처럼 끝줄=화력발전소, 다음줄=재생에너지, 앞줄=외교관 (각 5개)
+function typeRows(faction) {
+  const xs = [6, 7, 8, 9, 10], ys = [6, 7, 8, 9, 10];
+  if (faction === 'North') return [xs.map((x) => [x, 0]), xs.map((x) => [x, 1]), xs.map((x) => [x, 2])];
+  if (faction === 'South') return [xs.map((x) => [x, 16]), xs.map((x) => [x, 15]), xs.map((x) => [x, 14])];
+  if (faction === 'East')  return [ys.map((y) => [16, y]), ys.map((y) => [15, y]), ys.map((y) => [14, y])];
+  if (faction === 'West')  return [ys.map((y) => [0, y]), ys.map((y) => [1, y]), ys.map((y) => [2, y])];
+  return [[], [], []];
 }
 
 // 초대형 인프라 3×3 의 좌상단(진영 중앙 시작점)
@@ -114,19 +112,16 @@ function buildBoard(s) {
   s.factions = {};
   let id = 1;
 
-  // 기물 배치
+  // 기물 배치 — 끝줄=화력발전소, 중간=재생에너지, 앞줄=외교관 (각 5개)
   active.forEach((f) => {
     s.factions[f] = { score: 0, allies: [] };
-    const block = spawnBlock(f);
-    const list = [];
-    const c = INIT_PIECES[f];
-    for (let i = 0; i < c.fossil; i++) list.push('fossil');
-    for (let i = 0; i < c.renew; i++) list.push('renew');
-    for (let i = 0; i < c.diplo; i++) list.push('diplo');
-    list.forEach((type, i) => {
-      const [x, y] = block[i] || block[block.length - 1];
-      s.pieces.push({ id: id++, faction: f, type, x, y, dir: 4 });
-      occupied.add(key(x, y));
+    const rows = typeRows(f);
+    const initDir = FACTION_INIT_DIR[f] ?? 4;
+    ['fossil', 'renew', 'diplo'].forEach((type, ti) => {
+      rows[ti].forEach(([x, y]) => {
+        s.pieces.push({ id: id++, faction: f, type, x, y, dir: initDir });
+        occupied.add(key(x, y));
+      });
     });
   });
 
@@ -428,7 +423,7 @@ function doCreateFossil(s, faction) {
   }
   if (!spot) { pushLog(s, `생성할 빈 공간이 없습니다.`); return; }
   s.factions[faction].score -= 2;
-  s.pieces.push({ id: s.nextId++, faction, type: 'fossil', x: spot[0], y: spot[1], dir: 4 });
+  s.pieces.push({ id: s.nextId++, faction, type: 'fossil', x: spot[0], y: spot[1], dir: FACTION_INIT_DIR[faction] ?? 4 });
   pushLog(s, `🛢️ ${FACTION_KO[faction]}이(가) 자원 2개로 화력 발전소를 생성했습니다.`);
 }
 
@@ -436,7 +431,6 @@ function doCreateFossil(s, faction) {
 function doPropose(s, action, faction) {
   const { toFaction, kind } = action;
   if (!s.pickOrder.includes(toFaction) || toFaction === faction) return;
-  // 외교관 인접 조건 확인
   const myDiplos = s.pieces.filter((p) => p.faction === faction && p.type === 'diplo');
   const adjacent = myDiplos.some((d) => adjacentEnemyDiplo(s, d).includes(toFaction));
   if (!adjacent) { pushLog(s, `외교관이 ${FACTION_KO[toFaction]} 외교관과 인접해 있지 않습니다.`); return; }
@@ -445,18 +439,21 @@ function doPropose(s, action, faction) {
   }
   const pid = s.nextId++;
   const terms = action.terms ? String(action.terms).slice(0, 200).trim() : '';
-  s.pending.push({ id: pid, from: faction, to: toFaction, kind, terms });
-  const termsMsg = terms ? ` / 조건: "${terms}"` : '';
-  if (kind === 'alliance') {
-    const warnings = [];
-    if (s.factions[faction].allies.length > 0)
-      warnings.push(`${FACTION_KO[faction]}의 기존 동맹 파기`);
-    if (s.factions[toFaction].allies.length > 0)
-      warnings.push(`${FACTION_KO[toFaction]}의 기존 동맹 파기`);
-    const warnMsg = warnings.length ? ` ⚠️ 수락 시 → ${warnings.join(', ')}` : '';
-    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 동맹 제안${termsMsg}${warnMsg}`);
+  if (kind === 'trade') {
+    const fromOffer = Math.max(0, parseInt(action.fromOffer) || 0);
+    if (s.factions[faction].score < fromOffer) {
+      pushLog(s, `💸 자원 부족 (제안: ${fromOffer}, 보유: ${s.factions[faction].score})`); return;
+    }
+    s.pending.push({ id: pid, from: faction, to: toFaction, kind: 'trade', fromOffer, toOffer: null, terms, status: 'need_counter' });
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 거래 제안 (제공: 자원 ${fromOffer}${terms ? `, 조건: "${terms}"` : ''})`);
   } else {
-    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 자원 거래 제안${termsMsg}`);
+    const warnings = [];
+    if (s.factions[faction].allies.length > 0) warnings.push(`${FACTION_KO[faction]}의 기존 동맹 파기`);
+    if (s.factions[toFaction].allies.length > 0) warnings.push(`${FACTION_KO[toFaction]}의 기존 동맹 파기`);
+    const warnMsg = warnings.length ? ` ⚠️ 수락 시 → ${warnings.join(', ')}` : '';
+    const termsMsg = terms ? ` / 조건: "${terms}"` : '';
+    s.pending.push({ id: pid, from: faction, to: toFaction, kind: 'alliance', terms });
+    pushLog(s, `📨 ${FACTION_KO[faction]} → ${FACTION_KO[toFaction]} : 동맹 제안${termsMsg}${warnMsg}`);
   }
 }
 
@@ -464,36 +461,63 @@ function resolveProposal(s, action) {
   const idx = s.pending.findIndex((p) => p.id === action.pendingId);
   if (idx === -1) return s;
   const p = s.pending[idx];
-  // 응답자는 to 진영의 플레이어여야 함
-  if (s.seats[p.to] !== action.playerId) return s;
-  s.pending.splice(idx, 1);
+  const isProposer = s.seats[p.from] === action.playerId;
+  const isResponder = s.seats[p.to] === action.playerId;
+  if (!isProposer && !isResponder) return s;
 
-  if (!action.accept) {
-    pushLog(s, `❌ ${FACTION_KO[p.to]}이(가) ${FACTION_KO[p.from]}의 제안을 거절했습니다.`);
+  if (p.kind === 'trade') {
+    // 1단계: 응답자가 맞거래 제안 또는 거절
+    if (p.status === 'need_counter' && isResponder) {
+      if (!action.accept) {
+        s.pending.splice(idx, 1);
+        pushLog(s, `❌ ${FACTION_KO[p.to]}이(가) 거래를 거절했습니다.`);
+        return s;
+      }
+      const toOffer = Math.max(0, parseInt(action.toOffer) || 0);
+      if (s.factions[p.to].score < toOffer) {
+        pushLog(s, `💸 ${FACTION_KO[p.to]} 자원 부족 (필요: ${toOffer})`); return s;
+      }
+      p.toOffer = toOffer; p.status = 'need_confirm';
+      pushLog(s, `🔄 ${FACTION_KO[p.to]}이(가) 맞거래 제안: 자원 ${toOffer} — ${FACTION_KO[p.from]}의 확정 대기`);
+      return s;
+    }
+    // 2단계: 제안자 최종 확정 또는 취소 (양쪽 모두 취소 가능)
+    if (p.status === 'need_confirm') {
+      s.pending.splice(idx, 1);
+      if (!action.accept) {
+        pushLog(s, `❌ 거래 취소 (${FACTION_KO[isProposer ? p.from : p.to]})`); return s;
+      }
+      if (!isProposer) return s;
+      const fA = s.factions[p.from], fB = s.factions[p.to];
+      const costA = p.fromOffer + DIPLO_FEE, costB = p.toOffer + DIPLO_FEE;
+      if (fA.score < costA) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.from]} 자원 부족 (필요 ${costA})`); return s; }
+      if (fB.score < costB) { pushLog(s, `⚠️ 거래 실패: ${FACTION_KO[p.to]} 자원 부족 (필요 ${costB})`); return s; }
+      fA.score -= costA; fB.score -= costB;
+      fA.score += p.toOffer; fB.score += p.fromOffer;
+      const termsMsg = p.terms ? ` / 조건: "${p.terms}"` : '';
+      pushLog(s, `✅ 거래 성사! ${FACTION_KO[p.from]}(−${p.fromOffer}→+${p.toOffer}) ↔ ${FACTION_KO[p.to]}(−${p.toOffer}→+${p.fromOffer}) [외교비 −${DIPLO_FEE} 각자]${termsMsg}`);
+      return s;
+    }
     return s;
   }
 
-  if (p.kind === 'trade') {
-    // 거래: 양측 +2 자원(시장 가치 창출), 동부는 +1 보너스
-    s.factions[p.from].score += 2;
-    s.factions[p.to].score += 2;
-    if (p.from === 'East') s.factions[p.from].score += 1;
-    if (p.to === 'East') s.factions[p.to].score += 1;
-    const tradeTerms = p.terms ? ` / 합의 조건: "${p.terms}"` : '';
-    pushLog(s, `💱 ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 자원 거래 성사! (각 +2자원)${tradeTerms}`);
-  } else if (p.kind === 'alliance') {
-    // 기존 동맹이 있으면 먼저 파기 (새 동맹 체결이 파기 사유)
-    for (const existing of [...(s.factions[p.from].allies || [])]) {
-      breakAlliance(s, p.from, existing, `${FACTION_KO[p.to]}과(와) 새 동맹 체결`);
-    }
-    for (const existing of [...(s.factions[p.to].allies || [])]) {
-      breakAlliance(s, p.to, existing, `${FACTION_KO[p.from]}과(와) 새 동맹 체결`);
-    }
-    if (!s.factions[p.from].allies.includes(p.to)) s.factions[p.from].allies.push(p.to);
-    if (!s.factions[p.to].allies.includes(p.from)) s.factions[p.to].allies.push(p.from);
-    const allyTerms = p.terms ? ` / 합의 조건: "${p.terms}"` : '';
-    pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성!${allyTerms} (파기 조건: 상대 영토 자원 수집·중앙 재생에너지 포획·다른 진영과 새 동맹 체결)`);
+  // 동맹
+  if (!isResponder) return s;
+  s.pending.splice(idx, 1);
+  if (!action.accept) {
+    pushLog(s, `❌ ${FACTION_KO[p.to]}이(가) 동맹을 거절했습니다.`); return s;
   }
+  const fA = s.factions[p.from], fB = s.factions[p.to];
+  if (fA.score < DIPLO_FEE || fB.score < DIPLO_FEE) {
+    pushLog(s, `⚠️ 동맹 실패: 외교 비용(자원 ${DIPLO_FEE}) 부족`); return s;
+  }
+  fA.score -= DIPLO_FEE; fB.score -= DIPLO_FEE;
+  for (const ex of [...(fA.allies || [])]) breakAlliance(s, p.from, ex, `${FACTION_KO[p.to]}과(와) 새 동맹`);
+  for (const ex of [...(fB.allies || [])]) breakAlliance(s, p.to, ex, `${FACTION_KO[p.from]}과(와) 새 동맹`);
+  if (!fA.allies.includes(p.to)) fA.allies.push(p.to);
+  if (!fB.allies.includes(p.from)) fB.allies.push(p.from);
+  const allyTerms = p.terms ? ` / 조건: "${p.terms}"` : '';
+  pushLog(s, `🕊️ ${FACTION_KO[p.from]} ↔ ${FACTION_KO[p.to]} 동맹 결성! [외교비 −${DIPLO_FEE} 각자]${allyTerms}`);
   return s;
 }
 

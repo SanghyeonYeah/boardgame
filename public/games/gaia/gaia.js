@@ -2,7 +2,7 @@ import { Net } from '/js/net.js';
 import { renderLobby, renderPlayers, toast, logLine, shareCode } from '/js/ui.js';
 import {
   createInitialState, applyAction, legalMovesFor, diplomacyTargets,
-  FACTIONS, FACTION_KO, FACTION_COLOR, currentFaction, infraAnchor, MAX_INFRA_PER_FACTION,
+  FACTIONS, FACTION_KO, FACTION_COLOR, currentFaction, infraAnchor, MAX_INFRA_PER_FACTION, DIPLO_FEE,
 } from './engine.js';
 
 const net = new Net('gaia');
@@ -133,6 +133,19 @@ function renderScores(s) {
   });
 }
 
+function getViewOrder(faction) {
+  const asc = Array.from({ length: 17 }, (_, i) => i);
+  const desc = Array.from({ length: 17 }, (_, i) => 16 - i);
+  // outer = 행(row), inner = 열(col), xy(outer,inner) → [boardX, boardY]
+  switch (faction) {
+    case 'South': return { outer: asc,  inner: asc,  xy: (o, i) => [i, o] };
+    case 'North': return { outer: desc, inner: desc, xy: (o, i) => [i, o] };
+    case 'East':  return { outer: asc,  inner: asc,  xy: (o, i) => [o, i] };
+    case 'West':  return { outer: desc, inner: desc, xy: (o, i) => [o, i] };
+    default:      return { outer: asc,  inner: asc,  xy: (o, i) => [i, o] };
+  }
+}
+
 function renderBoard(s) {
   const board = $('gboard');
   board.innerHTML = '';
@@ -148,8 +161,10 @@ function renderBoard(s) {
   }
   const legalMap = new Map(legal.map((m) => [`${m.tx},${m.ty}`, m]));
 
-  for (let y = 0; y < 17; y++) {
-    for (let x = 0; x < 17; x++) {
+  const V = getViewOrder(mine);
+  for (const outer of V.outer) {
+    for (const inner of V.inner) {
+      const [x, y] = V.xy(outer, inner);
       const cell = document.createElement('div');
       const region = y <= 3 ? 'north' : y >= 13 ? 'south' : x <= 3 ? 'west' : x >= 13 ? 'east' : '';
       cell.className = 'gcell' + (region ? ' ' + region : '');
@@ -182,7 +197,7 @@ function renderBoard(s) {
       board.appendChild(cell);
     }
   }
-}
+}  // end renderBoard
 
 function onCellClick(s, x, y, isMyTurn) {
   if (!isMyTurn) { toast('자신의 턴이 아닙니다.'); return; }
@@ -259,10 +274,24 @@ function renderDiplo(s, targets) {
     label.style.cssText = `min-width:60px;color:${FACTION_COLOR[t]};font-weight:700;`;
     label.textContent = FACTION_KO[t];
 
+    const offerRow = document.createElement('div');
+    offerRow.className = 'row';
+    offerRow.style.marginBottom = '6px';
+    const offerLabel = document.createElement('span');
+    offerLabel.className = 'muted small';
+    offerLabel.textContent = '내가 줄 자원: ';
+    const offerInput = document.createElement('input');
+    offerInput.type = 'number'; offerInput.min = '0'; offerInput.value = '0';
+    offerInput.style.width = '70px';
+    offerRow.append(offerLabel, offerInput);
+    wrap.insertBefore(offerRow, btnRow);
+
     const trade = document.createElement('button');
     trade.className = 'sm'; trade.textContent = '💱 거래';
     trade.onclick = () => {
-      net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'trade', terms: termsInput.value, playerId: net.id });
+      net.dispatch({ type: 'PROPOSE', toFaction: t, kind: 'trade',
+        fromOffer: parseInt(offerInput.value) || 0,
+        terms: termsInput.value, playerId: net.id });
       diploOpen = false; box.innerHTML = '';
     };
 
@@ -282,29 +311,59 @@ function renderDiplo(s, targets) {
 }
 
 function renderPending(s) {
-  if (diploOpen) return; // 외교 제안 UI가 열려있으면 그대로 둠
+  if (diploOpen) return;
   const mine = myFaction(s);
   const box = $('pendingBox');
-  const forMe = s.pending.filter((p) => p.to === mine);
-  if (!forMe.length) { if (!box.dataset.keep) box.innerHTML = ''; return; }
+  // 나에게 온 제안 (맞거래 입력 필요) + 내가 낸 제안 중 상대가 맞거래를 제안한 것 (확정 대기)
+  const incoming = s.pending.filter((p) => p.to === mine);
+  const awaitConfirm = s.pending.filter((p) => p.from === mine && p.status === 'need_confirm');
+  if (!incoming.length && !awaitConfirm.length) { box.innerHTML = ''; return; }
   box.innerHTML = '';
-  forMe.forEach((p) => {
+
+  incoming.forEach((p) => {
     const div = document.createElement('div');
     div.className = 'banner warn';
-    div.innerHTML = `<b>${FACTION_KO[p.from]}</b> 진영의 ${p.kind === 'alliance' ? '동맹' : '거래'} 제안`;
-    if (p.terms) {
-      const termsEl = document.createElement('div');
-      termsEl.className = 'muted small';
-      termsEl.style.marginTop = '4px';
-      termsEl.textContent = `📋 조건: ${p.terms}`;
-      div.appendChild(termsEl);
+    if (p.kind === 'trade' && p.status === 'need_counter') {
+      div.innerHTML = `<b style="color:${FACTION_COLOR[p.from]}">${FACTION_KO[p.from]}</b>의 거래 제안
+        <br>상대가 줄 자원: <b>${p.fromOffer}</b>
+        ${p.terms ? `<div class="muted small" style="margin-top:4px">📋 조건: ${p.terms}</div>` : ''}`;
+      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '0'; inp.value = '0'; inp.placeholder = '내가 줄 자원';
+      inp.style.width = '100px';
+      const yes = document.createElement('button'); yes.className = 'primary sm'; yes.textContent = '맞거래 제안';
+      yes.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: true, toOffer: parseInt(inp.value) || 0, playerId: net.id });
+      const no = document.createElement('button'); no.className = 'sm'; no.textContent = '거절';
+      no.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: false, playerId: net.id });
+      row.append(inp, yes, no); div.appendChild(row);
+    } else if (p.kind === 'alliance') {
+      div.innerHTML = `<b style="color:${FACTION_COLOR[p.from]}">${FACTION_KO[p.from]}</b>의 동맹 제안
+        ${p.terms ? `<div class="muted small" style="margin-top:4px">📋 조건: ${p.terms}</div>` : ''}
+        <div class="muted small">수락 시 양측 자원 ${DIPLO_FEE} 차감</div>`;
+      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
+      const yes = document.createElement('button'); yes.className = 'primary sm'; yes.textContent = '수락';
+      yes.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: true, playerId: net.id });
+      const no = document.createElement('button'); no.className = 'sm'; no.textContent = '거절';
+      no.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: false, playerId: net.id });
+      row.append(yes, no); div.appendChild(row);
     }
+    box.appendChild(div);
+  });
+
+  awaitConfirm.forEach((p) => {
+    const div = document.createElement('div');
+    div.className = 'banner info';
+    div.innerHTML = `<b style="color:${FACTION_COLOR[p.to]}">${FACTION_KO[p.to]}</b>의 맞거래 도착
+      <br>내가 줄: <b>${p.fromOffer}</b> → 내가 받을: <b>${p.toOffer}</b>
+      ${p.terms ? `<div class="muted small" style="margin-top:4px">📋 조건: ${p.terms}</div>` : ''}
+      <div class="muted small">확정 시 외교비 자원 −${DIPLO_FEE} 양측</div>`;
     const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
-    const yes = document.createElement('button'); yes.className = 'primary sm'; yes.textContent = '수락';
+    const yes = document.createElement('button'); yes.className = 'primary sm'; yes.textContent = '거래 확정';
     yes.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: true, playerId: net.id });
-    const no = document.createElement('button'); no.className = 'sm'; no.textContent = '거절';
+    const no = document.createElement('button'); no.className = 'sm'; no.textContent = '취소';
     no.onclick = () => net.dispatch({ type: 'RESPOND', pendingId: p.id, accept: false, playerId: net.id });
-    row.append(yes, no); div.appendChild(row); box.appendChild(div);
+    row.append(yes, no); div.appendChild(row);
+    box.appendChild(div);
   });
 }
 
