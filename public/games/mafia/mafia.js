@@ -33,7 +33,7 @@ function flushPrivate() {
 }
 
 // ---- AI 컨트롤러 (호스트 전용) ----
-const AI_NAMES = ['태양봇', '에너지AI', '가이아봇', '녹색AI', '재생봇', '핵봇', '탄소봇', '클린봇', '스마트AI', '환경봇', '파워봇', '생태AI'];
+const AI_NAMES = ['태양봇', '에너지AI', '기후봇', '녹색AI', '재생봇', '핵봇', '탄소봇', '클린봇', '스마트AI', '환경봇', '파워봇', '생태AI'];
 let aiTimers = [];
 let scheduledAiKey = '';
 
