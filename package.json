@@ -4,11 +4,8 @@
   "private": true,
   "description": "가이아 · 에너지 변형 체스 · 에너지 변형 마피아 — Supabase Realtime + Vercel 정적 웹 보드게임",
   "scripts": {
-    "generate-config": "node scripts/generate-config.mjs",
-    "predev": "node scripts/generate-config.mjs",
-    "dev": "npx --yes serve public -l 3000",
-    "prestart": "node scripts/generate-config.mjs",
-    "start": "npx --yes serve public -l 3000",
-    "build": "node scripts/generate-config.mjs"
+    "build": "node scripts/generate-env.js",
+    "dev": "node scripts/generate-env.js && npx --yes serve public -l 3000",
+    "start": "node scripts/generate-env.js && npx --yes serve public -l 3000"
   }
 }
