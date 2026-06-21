@@ -25,7 +25,11 @@ function hostApply(_publicState, action, fromId) {
 function flushPrivate() {
   const aiIds = new Set(G.players.filter((p) => p.isAI).map((p) => p.id));
   for (const msg of G._private) {
-    if (aiIds.has(msg.to)) continue; // AI 개인 메시지는 무시
+    if (aiIds.has(msg.to)) {
+      // AI가 쪽지를 받으면 자동 답장 생성
+      if (msg.tag === 'dm' && msg.data?.fromId) scheduleAiDmReply(msg.to, msg.data.fromId, msg.text);
+      continue;
+    }
     if (msg.to === net.id) handlePrivate(msg);
     else net.message({ kind: 'priv', to: msg.to, text: msg.text, tag: msg.tag, data: msg.data });
   }
@@ -71,6 +75,28 @@ function aiContext(ai) {
   const recentChat = G.publicChat.slice(-12).map((c) => `${c.name}: ${c.text}`).join('\n') || '(없음)';
   const recentLog = G.log.slice(-6).join('\n');
   return { role, alive, others, fossils, recentChat, recentLog };
+}
+
+function scheduleAiDmReply(aiId, fromId, msgText) {
+  const ai = G.players.find((p) => p.id === aiId);
+  if (!ai?.alive) return;
+  const originalText = msgText.replace(/^\(익명→나\) /, '');
+  setTimeout(async () => {
+    if (!G.players.find((p) => p.id === aiId && p.alive)) return;
+    const role = G.roles[aiId];
+    const roleHint = role === ROLE.FOSSIL
+      ? '당신은 화석연료(마피아)입니다. 정체를 숨기며 자연스럽게 답장하세요.'
+      : role === ROLE.SPY ? '당신은 산업 스파이입니다. 중립적으로 답장하세요.'
+      : `당신은 ${ROLE_KO[role]}입니다.`;
+    const prompt = `당신은 "에너지 변형 마피아" AI 플레이어 "${ai.name}"입니다.
+${roleHint}
+익명의 쪽지를 받았습니다: "${originalText}"
+한국어로 1~2문장으로 답장을 작성하세요. 메시지 텍스트만 출력하세요.`;
+    const reply = await callGemini(prompt, 150);
+    if (reply && G.players.find((p) => p.id === aiId && p.alive)) {
+      net.dispatch({ type: 'DM', playerId: aiId, to: fromId, text: reply.replace(/^["']|["']$/g, '').trim() });
+    }
+  }, 2000 + Math.random() * 4000);
 }
 
 async function aiChatMsg(ai) {
@@ -485,8 +511,9 @@ function renderDmSelect(s) {
   const sel = $('dmTo');
   const cur = sel.value;
   sel.innerHTML = '<option value="">— 귓속말 대상 —</option>';
-  s.players.filter((p) => p.id !== net.id && !p.isAI).forEach((p) => {
-    const o = document.createElement('option'); o.value = p.id; o.textContent = p.name + (p.alive ? '' : ' (탈락)');
+  s.players.filter((p) => p.id !== net.id).forEach((p) => {
+    const o = document.createElement('option'); o.value = p.id;
+    o.textContent = (p.isAI ? '🤖 ' : '') + p.name + (p.alive ? '' : ' (탈락)');
     sel.appendChild(o);
   });
   if (cur) sel.value = cur;

@@ -177,7 +177,7 @@ export function applyAction(G, action) {
       G.dmLog[G.round] = G.dmLog[G.round] || [];
       G.dmLog[G.round].push({ from: id, to: action.to, text, phase: G.phase });
       priv(G, id, `(→${to.name}) ${text}`, 'dm');
-      priv(G, action.to, `(${me.name}→나) ${text}`, 'dm');
+      priv(G, action.to, `(익명→나) ${text}`, 'dm', { fromId: id }); // 수신자는 발신자 모름
       return G;
     }
     case 'NIGHT_ACTION': {
