@@ -23,11 +23,130 @@ function hostApply(_publicState, action, fromId) {
   return pub;
 }
 function flushPrivate() {
+  const aiIds = new Set(G.players.filter((p) => p.isAI).map((p) => p.id));
   for (const msg of G._private) {
+    if (aiIds.has(msg.to)) continue; // AI 개인 메시지는 무시
     if (msg.to === net.id) handlePrivate(msg);
     else net.message({ kind: 'priv', to: msg.to, text: msg.text, tag: msg.tag, data: msg.data });
   }
   G._private = [];
+}
+
+// ---- AI 컨트롤러 (호스트 전용) ----
+const AI_NAMES = ['태양봇', '에너지AI', '가이아봇', '녹색AI', '재생봇', '핵봇', '탄소봇', '클린봇', '스마트AI', '환경봇', '파워봇', '생태AI'];
+let aiTimers = [];
+let scheduledAiKey = '';
+
+function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function clearAiTimers() { aiTimers.forEach(clearTimeout); aiTimers = []; }
+
+function addAI() {
+  if (!net.isHost || !G || G.phase !== 'lobby') return;
+  if (G.players.length >= 12) return toast('최대 12명입니다.');
+  const used = new Set(G.players.filter((p) => p.isAI).map((p) => p.name));
+  const name = AI_NAMES.find((n) => !used.has(n)) || `AI봇${G.players.filter((p) => p.isAI).length + 1}`;
+  const aiId = 'ai_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  net.dispatch({ type: 'ADD_AI', playerId: net.id, aiId, aiName: name });
+}
+
+function removeAI(aiId) {
+  if (!net.isHost || !G || G.phase !== 'lobby') return;
+  net.dispatch({ type: 'REMOVE_AI', playerId: net.id, aiId });
+}
+
+function scheduleAI() {
+  if (!net.isHost || !G) return;
+  const key = `${G.phase}:${G.round}`;
+  if (key === scheduledAiKey) return;
+  scheduledAiKey = key;
+  clearAiTimers();
+
+  const aiAlive = G.players.filter((p) => p.isAI && p.alive);
+  if (!aiAlive.length) return;
+
+  if (G.phase === 'night') {
+    aiAlive.forEach((ai, i) => {
+      if (![ROLE.FOSSIL, ROLE.DOCTOR, ROLE.HACKER, ROLE.SPY].includes(G.roles[ai.id])) return;
+      aiTimers.push(setTimeout(() => {
+        if (!G.players.find((p) => p.id === ai.id && p.alive)) return;
+        if (G.night.submitted.includes(ai.id)) return;
+        const target = pickNightTarget(ai);
+        if (target) net.dispatch({ type: 'NIGHT_ACTION', playerId: ai.id, target });
+      }, 3000 + i * 1000 + Math.random() * 4000));
+    });
+  } else if (G.phase === 'day') {
+    aiAlive.forEach((ai, idx) => {
+      genAiChat(ai).forEach((text, i) => {
+        aiTimers.push(setTimeout(() => {
+          if (!G.players.find((p) => p.id === ai.id && p.alive)) return;
+          net.dispatch({ type: 'CHAT', playerId: ai.id, text });
+        }, 2000 + idx * 3000 + i * 5000 + Math.random() * 3000));
+      });
+      aiTimers.push(setTimeout(() => {
+        if (!G.players.find((p) => p.id === ai.id && p.alive)) return;
+        if (ai.id in G.votes) return;
+        net.dispatch({ type: 'VOTE', playerId: ai.id, target: pickVote(ai) });
+      }, 25000 + idx * 2000 + Math.random() * 25000));
+    });
+  }
+}
+
+function pickNightTarget(ai) {
+  const role = G.roles[ai.id];
+  const alive = G.players.filter((p) => p.alive);
+  const others = alive.filter((p) => p.id !== ai.id);
+  if (!others.length) return null;
+  switch (role) {
+    case ROLE.FOSSIL: { const safe = others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL); return rnd(safe.length ? safe : others).id; }
+    case ROLE.DOCTOR: return rnd(alive).id;
+    case ROLE.HACKER: return rnd(others).id;
+    case ROLE.SPY: return [...others].sort((a, b) => b.energy - a.energy)[0].id;
+    default: return null;
+  }
+}
+
+function genAiChat(ai) {
+  const role = G.roles[ai.id];
+  const others = G.players.filter((p) => p.alive && p.id !== ai.id);
+  if (!others.length) return [];
+  const isFossil = role === ROLE.FOSSIL;
+  const suspect = () => { const pool = isFossil ? others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL) : others; return rnd(pool.length ? pool : others).name; };
+
+  const pool = [
+    () => `${suspect()}이(가) 좀 수상한 것 같습니다. 다들 어떻게 생각하세요?`,
+    () => `저는 화석연료가 아닙니다. 잘 생각해보세요.`,
+    () => `가이아를 지킵시다! 화석연료를 반드시 찾아야 해요.`,
+    () => `이번 투표는 신중하게 해야 할 것 같아요.`,
+    () => `${rnd(others).name}님, 당신은 어떻게 생각하세요?`,
+    () => `솔직히 아직 확신이 없어요. 더 토론해봐야 할 것 같습니다.`,
+    () => `발언을 전혀 안 하는 분들이 더 수상합니다.`,
+    () => `${suspect()}한테 투표할까 생각 중입니다.`,
+    ...(isFossil
+      ? [() => `저한테 투표하면 좋은 정보를 잃게 됩니다.`, () => `${suspect()}이(가) 어제부터 이상하게 행동하던데요.`]
+      : [() => `밤에 죽은 분의 역할을 보면 화석연료의 전략이 보입니다.`, () => `화석연료는 지금 조용히 숨어있을 거예요.`]),
+  ];
+
+  const count = 1 + Math.floor(Math.random() * 3);
+  const msgs = []; const used = new Set();
+  for (let i = 0; i < count; i++) {
+    let fn; let t = 0;
+    do { fn = rnd(pool); t++; } while (used.has(fn) && t < 15);
+    used.add(fn); msgs.push(fn());
+  }
+  return msgs;
+}
+
+function pickVote(ai) {
+  const role = G.roles[ai.id];
+  const alive = G.players.filter((p) => p.alive);
+  const others = alive.filter((p) => p.id !== ai.id);
+  if (!others.length) return 'skip';
+  if (role === ROLE.FOSSIL) { const safe = others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL); return rnd(safe.length ? safe : others).id; }
+  const tally = {};
+  Object.values(G.votes).forEach((t) => { if (t && t !== 'skip') tally[t] = (tally[t] || 0) + 1; });
+  const top = Object.entries(tally).sort(([, a], [, b]) => b - a)[0];
+  if (top && Math.random() > 0.35 && alive.find((p) => p.id === top[0])) return top[0];
+  return rnd(others).id;
 }
 
 // ---------- 로비 ----------
@@ -104,7 +223,13 @@ function renderWait(s) {
   s.players.forEach((p) => {
     const d = document.createElement('div');
     d.className = 'pm';
-    d.innerHTML = `<span class="nm">${p.name}${p.id === net.id ? ' (나)' : ''}</span>${p.id === s.hostId ? '<span class="role">방장</span>' : ''}`;
+    d.innerHTML = `<span class="nm">${p.isAI ? '🤖 ' : ''}${p.name}${p.id === net.id ? ' (나)' : ''}</span>${p.id === s.hostId ? '<span class="role">방장</span>' : ''}${p.isAI ? '<span class="role">AI</span>' : ''}`;
+    if (p.isAI && net.isHost) {
+      const rm = document.createElement('button');
+      rm.className = 'sm ghost'; rm.style.marginLeft = 'auto'; rm.textContent = '제거';
+      rm.onclick = () => removeAI(p.id);
+      d.appendChild(rm);
+    }
     box.appendChild(d);
   });
   const start = $('wStart');
@@ -113,8 +238,12 @@ function renderWait(s) {
     start.disabled = s.players.length < 8;
     start.onclick = () => net.dispatch({ type: 'START', playerId: net.id });
     $('wHint').textContent = s.players.length < 8 ? `8명 이상 필요 (현재 ${s.players.length})` : '시작 준비 완료!';
+    const addBtn = $('wAddAI');
+    if (addBtn) { addBtn.classList.remove('hidden'); addBtn.disabled = s.players.length >= 12; addBtn.onclick = addAI; }
   } else {
     start.classList.add('hidden');
+    const addBtn = $('wAddAI');
+    if (addBtn) addBtn.classList.add('hidden');
     $('wHint').textContent = '방장이 시작하기를 기다리는 중…';
   }
 }
@@ -176,7 +305,7 @@ function renderPlayers(s) {
     if (s.phase === 'day' && myVote === p.id) d.classList.add('voted');
     const roleLabel = !p.alive && p.revealedRole ? `<span class="role">${ROLE_KO[p.revealedRole]}</span>`
       : (s.phase === 'over' && s.rolesReveal) ? `<span class="role">${ROLE_KO[s.rolesReveal[p.id]]}</span>` : '';
-    d.innerHTML = `<span class="nm">${p.name}${p.id === net.id ? ' (나)' : ''}</span>
+    d.innerHTML = `<span class="nm">${p.isAI ? '🤖 ' : ''}${p.name}${p.id === net.id ? ' (나)' : ''}</span>
       <span class="en">⚡${p.energy}</span> ${roleLabel}
       ${s.phase === 'day' && tally[p.id] ? `<span class="vote-tally">🗳️${tally[p.id]}</span>` : ''}`;
 
@@ -264,7 +393,7 @@ function renderDmSelect(s) {
   const sel = $('dmTo');
   const cur = sel.value;
   sel.innerHTML = '<option value="">— 귓속말 대상 —</option>';
-  s.players.filter((p) => p.id !== net.id).forEach((p) => {
+  s.players.filter((p) => p.id !== net.id && !p.isAI).forEach((p) => {
     const o = document.createElement('option'); o.value = p.id; o.textContent = p.name + (p.alive ? '' : ' (탈락)');
     sel.appendChild(o);
   });
@@ -329,13 +458,14 @@ function flushLog(s) {
 
 function escapeHtml(t) { return t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-// 밤/라운드 전환 시 내 지목 초기화
+// 밤/라운드 전환 시 내 지목 초기화 + AI 스케줄
 let prevKey = '';
 const origOnState = net.onState;
 net.onState = (s) => {
   const key = s ? `${s.phase}:${s.round}` : '';
   if (key !== prevKey) { myNightTarget = null; prevKey = key; }
   origOnState(s);
+  if (s && s.phase !== 'lobby' && s.phase !== 'over') scheduleAI();
 };
 
 function setupEmojiBar(barId, inputId) {

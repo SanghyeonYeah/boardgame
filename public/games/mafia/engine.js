@@ -74,6 +74,7 @@ export function makePublic(G) {
     players: G.players.map((p) => ({
       id: p.id, name: p.name, alive: p.alive, energy: p.energy,
       revealedRole: p.revealedRole || null,
+      isAI: p.isAI || false,
     })),
     votes: G.votes,
     publicChat: G.publicChat.slice(-120),
@@ -130,6 +131,19 @@ export function applyAction(G, action) {
     }
     case 'LEAVE': {
       if (G.phase === 'lobby') G.players = G.players.filter((p) => p.id !== id);
+      return G;
+    }
+    case 'ADD_AI': {
+      if (id !== G.hostId || G.phase !== 'lobby') return G;
+      if (G.players.length >= 12) return G;
+      G.players.push({ id: action.aiId, name: action.aiName, alive: true, energy: 2, isAI: true });
+      plog(G, `🤖 AI 플레이어 '${action.aiName}' 참가.`);
+      return G;
+    }
+    case 'REMOVE_AI': {
+      if (id !== G.hostId || G.phase !== 'lobby') return G;
+      const ai = G.players.find((p) => p.id === action.aiId && p.isAI);
+      if (ai) { G.players = G.players.filter((p) => p.id !== action.aiId); plog(G, `🤖 AI '${ai.name}' 제거됨.`); }
       return G;
     }
     case 'START': {
