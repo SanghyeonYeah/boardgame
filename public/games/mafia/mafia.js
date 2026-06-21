@@ -34,12 +34,158 @@ function flushPrivate() {
 
 // ---- AI 컨트롤러 (호스트 전용) ----
 const AI_NAMES = ['태양봇', '에너지AI', '기후봇', '녹색AI', '재생봇', '핵봇', '탄소봇', '클린봇', '스마트AI', '환경봇', '파워봇', '생태AI'];
+const GEMINI_MODEL = 'gemini-2.0-flash';
 let aiTimers = [];
 let scheduledAiKey = '';
 
 function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function clearAiTimers() { aiTimers.forEach(clearTimeout); aiTimers = []; }
 
+// ---------- Gemini API ----------
+async function callGemini(prompt, maxTokens = 200) {
+  const apiKey = window.__GEMINI_KEY__;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 1.0, maxOutputTokens: maxTokens },
+        }),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+  } catch { return null; }
+}
+
+function aiContext(ai) {
+  const role = G.roles[ai.id];
+  const alive = G.players.filter((p) => p.alive);
+  const others = alive.filter((p) => p.id !== ai.id);
+  const fossils = G.players.filter((p) => G.roles[p.id] === ROLE.FOSSIL).map((p) => p.name);
+  const recentChat = G.publicChat.slice(-12).map((c) => `${c.name}: ${c.text}`).join('\n') || '(없음)';
+  const recentLog = G.log.slice(-6).join('\n');
+  return { role, alive, others, fossils, recentChat, recentLog };
+}
+
+async function aiChatMsg(ai) {
+  const { role, others, fossils, recentChat, recentLog } = aiContext(ai);
+  if (!others.length) return null;
+
+  const roleHint = role === ROLE.FOSSIL
+    ? `당신은 화석연료(마피아)입니다. 정체를 숨기세요. 동료 화석연료: ${fossils.join(', ')}. 이들을 의심하거나 투표하지 마세요.`
+    : role === ROLE.SPY
+    ? '당신은 산업 스파이입니다. 독립 세력이므로 정체를 숨기고 중립적으로 행동하세요.'
+    : `당신은 ${ROLE_KO[role]}입니다. 화석연료를 찾으려 노력하세요.`;
+
+  const prompt = `당신은 "에너지 변형 마피아" 게임의 AI 플레이어 "${ai.name}"입니다.
+${roleHint}
+생존자: ${others.map((p) => p.name).join(', ')}
+최근 게임 로그:\n${recentLog}
+최근 채팅:\n${recentChat}
+
+지금 낮 토론 시간입니다. 역할에 맞게 자연스러운 한국어 채팅 메시지를 딱 1문장으로 작성하세요.
+메시지 텍스트만 출력하세요 (이름, 설명, 따옴표 없이).`;
+
+  const text = await callGemini(prompt, 120);
+  if (text) return text.replace(/^["']|["']$/g, '').trim();
+
+  // 폴백: 템플릿
+  const isFossil = role === ROLE.FOSSIL;
+  const suspect = () => { const pool = isFossil ? others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL) : others; return rnd(pool.length ? pool : others).name; };
+  return rnd([
+    `${suspect()}이(가) 좀 수상합니다.`,
+    '저는 화석연료가 아닙니다.',
+    `${rnd(others).name}님은 어떻게 생각하세요?`,
+    '이번 투표 신중하게 해요.',
+  ]);
+}
+
+async function aiNightDecision(ai) {
+  const role = G.roles[ai.id];
+  const alive = G.players.filter((p) => p.alive);
+  const others = alive.filter((p) => p.id !== ai.id);
+  if (!others.length) return null;
+
+  const actionDesc = {
+    [ROLE.FOSSIL]: `화석연료입니다. 오늘 밤 제거할 재생에너지 팀원을 1명 선택하세요. 동료 화석연료(${G.players.filter((p) => G.roles[p.id] === ROLE.FOSSIL && p.id !== ai.id).map((p) => p.name).join(', ') || '없음'})는 절대 선택하지 마세요.`,
+    [ROLE.DOCTOR]: '태양광 패널(의사)입니다. 오늘 밤 공격에서 보호할 플레이어 1명을 선택하세요.',
+    [ROLE.HACKER]: '원자력 에너지(해커)입니다. 오늘 밤 메시지를 감청할 플레이어 1명을 선택하세요.',
+    [ROLE.SPY]: '산업 스파이입니다. 에너지를 훔칠 플레이어 1명을 선택하세요.',
+  }[role];
+
+  const candidates = role === ROLE.FOSSIL
+    ? others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL)
+    : role === ROLE.DOCTOR ? alive : others;
+  if (!candidates.length) return rnd(others)?.id || null;
+
+  const list = candidates.map((p) => `${p.name} → id: ${p.id}`).join('\n');
+  const prompt = `에너지 변형 마피아 AI 플레이어 "${ai.name}"입니다.
+역할: ${actionDesc}
+선택 가능한 플레이어 목록:
+${list}
+
+대상 플레이어의 id를 정확히 출력하세요. id 외에 다른 텍스트는 절대 출력하지 마세요.`;
+
+  const resp = await callGemini(prompt, 60);
+  if (resp) {
+    const trimmed = resp.trim();
+    if (candidates.find((p) => p.id === trimmed)) return trimmed;
+  }
+  // 폴백
+  if (role === ROLE.SPY) return [...candidates].sort((a, b) => b.energy - a.energy)[0].id;
+  return rnd(candidates).id;
+}
+
+async function aiVoteDecision(ai) {
+  const role = G.roles[ai.id];
+  const alive = G.players.filter((p) => p.alive);
+  const others = alive.filter((p) => p.id !== ai.id);
+  if (!others.length) return 'skip';
+
+  const { fossils, recentChat, recentLog } = aiContext(ai);
+  const roleHint = role === ROLE.FOSSIL
+    ? `당신은 화석연료입니다. 동료(${fossils.join(', ')})를 보호하고, 재생에너지 팀원에게 투표하세요.`
+    : `당신은 ${ROLE_KO[role]}입니다. 화석연료로 의심되는 사람에게 투표하세요.`;
+
+  const tally = {};
+  Object.values(G.votes).forEach((t) => { if (t && t !== 'skip') tally[t] = (tally[t] || 0) + 1; });
+  const tallyStr = Object.entries(tally).map(([id, n]) => `${G.players.find((p) => p.id === id)?.name}: ${n}표`).join(', ') || '(아직 투표 없음)';
+
+  const list = others.map((p) => `${p.name} → id: ${p.id}`).join('\n');
+  const prompt = `에너지 변형 마피아 AI 플레이어 "${ai.name}"입니다.
+${roleHint}
+생존자 목록:
+${list}
+현재 투표 현황: ${tallyStr}
+최근 채팅:\n${recentChat}
+최근 로그:\n${recentLog}
+
+투표할 플레이어의 id를 정확히 출력하세요. 기권하려면 skip을 출력하세요.
+id 또는 skip 외에 다른 텍스트는 절대 출력하지 마세요.`;
+
+  const resp = await callGemini(prompt, 60);
+  if (resp) {
+    const trimmed = resp.trim();
+    if (trimmed === 'skip') return 'skip';
+    if (others.find((p) => p.id === trimmed)) return trimmed;
+  }
+  // 폴백
+  if (role === ROLE.FOSSIL) {
+    const safe = others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL);
+    return rnd(safe.length ? safe : others).id;
+  }
+  const top = Object.entries(tally).sort(([, a], [, b]) => b - a)[0];
+  if (top && alive.find((p) => p.id === top[0])) return top[0];
+  return rnd(others).id;
+}
+
+// ---------- 스케줄러 ----------
 function addAI() {
   if (!net.isHost || !G || G.phase !== 'lobby') return;
   if (G.players.length >= 12) return toast('최대 12명입니다.');
@@ -67,86 +213,32 @@ function scheduleAI() {
   if (G.phase === 'night') {
     aiAlive.forEach((ai, i) => {
       if (![ROLE.FOSSIL, ROLE.DOCTOR, ROLE.HACKER, ROLE.SPY].includes(G.roles[ai.id])) return;
-      aiTimers.push(setTimeout(() => {
+      aiTimers.push(setTimeout(async () => {
         if (!G.players.find((p) => p.id === ai.id && p.alive)) return;
         if (G.night.submitted.includes(ai.id)) return;
-        const target = pickNightTarget(ai);
+        const target = await aiNightDecision(ai);
         if (target) net.dispatch({ type: 'NIGHT_ACTION', playerId: ai.id, target });
-      }, 3000 + i * 1000 + Math.random() * 4000));
+      }, 2000 + i * 800 + Math.random() * 3000));
     });
   } else if (G.phase === 'day') {
+    const chatCount = 1 + Math.floor(Math.random() * 3); // AI당 1~3회 채팅
     aiAlive.forEach((ai, idx) => {
-      genAiChat(ai).forEach((text, i) => {
-        aiTimers.push(setTimeout(() => {
+      for (let i = 0; i < chatCount; i++) {
+        const delay = 3000 + idx * 4000 + i * 7000 + Math.random() * 4000;
+        aiTimers.push(setTimeout(async () => {
           if (!G.players.find((p) => p.id === ai.id && p.alive)) return;
-          net.dispatch({ type: 'CHAT', playerId: ai.id, text });
-        }, 2000 + idx * 3000 + i * 5000 + Math.random() * 3000));
-      });
-      aiTimers.push(setTimeout(() => {
+          const text = await aiChatMsg(ai);
+          if (text) net.dispatch({ type: 'CHAT', playerId: ai.id, text });
+        }, delay));
+      }
+      aiTimers.push(setTimeout(async () => {
         if (!G.players.find((p) => p.id === ai.id && p.alive)) return;
         if (ai.id in G.votes) return;
-        net.dispatch({ type: 'VOTE', playerId: ai.id, target: pickVote(ai) });
-      }, 25000 + idx * 2000 + Math.random() * 25000));
+        const target = await aiVoteDecision(ai);
+        net.dispatch({ type: 'VOTE', playerId: ai.id, target: target || 'skip' });
+      }, 30000 + idx * 3000 + Math.random() * 30000));
     });
   }
-}
-
-function pickNightTarget(ai) {
-  const role = G.roles[ai.id];
-  const alive = G.players.filter((p) => p.alive);
-  const others = alive.filter((p) => p.id !== ai.id);
-  if (!others.length) return null;
-  switch (role) {
-    case ROLE.FOSSIL: { const safe = others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL); return rnd(safe.length ? safe : others).id; }
-    case ROLE.DOCTOR: return rnd(alive).id;
-    case ROLE.HACKER: return rnd(others).id;
-    case ROLE.SPY: return [...others].sort((a, b) => b.energy - a.energy)[0].id;
-    default: return null;
-  }
-}
-
-function genAiChat(ai) {
-  const role = G.roles[ai.id];
-  const others = G.players.filter((p) => p.alive && p.id !== ai.id);
-  if (!others.length) return [];
-  const isFossil = role === ROLE.FOSSIL;
-  const suspect = () => { const pool = isFossil ? others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL) : others; return rnd(pool.length ? pool : others).name; };
-
-  const pool = [
-    () => `${suspect()}이(가) 좀 수상한 것 같습니다. 다들 어떻게 생각하세요?`,
-    () => `저는 화석연료가 아닙니다. 잘 생각해보세요.`,
-    () => `가이아를 지킵시다! 화석연료를 반드시 찾아야 해요.`,
-    () => `이번 투표는 신중하게 해야 할 것 같아요.`,
-    () => `${rnd(others).name}님, 당신은 어떻게 생각하세요?`,
-    () => `솔직히 아직 확신이 없어요. 더 토론해봐야 할 것 같습니다.`,
-    () => `발언을 전혀 안 하는 분들이 더 수상합니다.`,
-    () => `${suspect()}한테 투표할까 생각 중입니다.`,
-    ...(isFossil
-      ? [() => `저한테 투표하면 좋은 정보를 잃게 됩니다.`, () => `${suspect()}이(가) 어제부터 이상하게 행동하던데요.`]
-      : [() => `밤에 죽은 분의 역할을 보면 화석연료의 전략이 보입니다.`, () => `화석연료는 지금 조용히 숨어있을 거예요.`]),
-  ];
-
-  const count = 1 + Math.floor(Math.random() * 3);
-  const msgs = []; const used = new Set();
-  for (let i = 0; i < count; i++) {
-    let fn; let t = 0;
-    do { fn = rnd(pool); t++; } while (used.has(fn) && t < 15);
-    used.add(fn); msgs.push(fn());
-  }
-  return msgs;
-}
-
-function pickVote(ai) {
-  const role = G.roles[ai.id];
-  const alive = G.players.filter((p) => p.alive);
-  const others = alive.filter((p) => p.id !== ai.id);
-  if (!others.length) return 'skip';
-  if (role === ROLE.FOSSIL) { const safe = others.filter((p) => G.roles[p.id] !== ROLE.FOSSIL); return rnd(safe.length ? safe : others).id; }
-  const tally = {};
-  Object.values(G.votes).forEach((t) => { if (t && t !== 'skip') tally[t] = (tally[t] || 0) + 1; });
-  const top = Object.entries(tally).sort(([, a], [, b]) => b - a)[0];
-  if (top && Math.random() > 0.35 && alive.find((p) => p.id === top[0])) return top[0];
-  return rnd(others).id;
 }
 
 // ---------- 로비 ----------
