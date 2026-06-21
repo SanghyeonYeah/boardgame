@@ -91,7 +91,13 @@ function renderWait(s) {
   waitRoom.classList.remove('hidden');
   game.classList.add('hidden');
   $('wCode').textContent = net.code;
-  $('wCopy').onclick = () => shareCode(net.code);
+  $('wCopy').onclick = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(net.code)
+        .then(() => toast(`방 코드 복사됨: ${net.code}`))
+        .catch(() => toast(`방 코드: ${net.code}`));
+    } else { toast(`방 코드: ${net.code}`); }
+  };
   $('wCount').textContent = s.players.length;
   const box = $('wPlayers');
   box.innerHTML = '';
