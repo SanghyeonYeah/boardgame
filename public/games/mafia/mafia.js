@@ -38,7 +38,7 @@ function flushPrivate() {
 
 // ---- AI 컨트롤러 (호스트 전용) ----
 const AI_NAMES = ['태양봇', '에너지AI', '기후봇', '녹색AI', '재생봇', '핵봇', '탄소봇', '클린봇', '스마트AI', '환경봇', '파워봇', '생태AI'];
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3.5-flash';
 let aiTimers = [];
 let scheduledAiKey = '';
 let dayPhaseStart = 0;       // 낮 페이즈 시작 시각 (투표 락 기준)
