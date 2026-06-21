@@ -48,7 +48,7 @@ let lastState = null;        // 카운트다운 만료 시 re-render용 캐시
 function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function clearAiTimers() {
   aiTimers.forEach(clearTimeout); aiTimers = [];
-  if (dayCountdownInterval) { clearInterval(dayCountdownInterval); dayCountdownInterval = null; }
+  // dayCountdownInterval은 net.onState 오버라이드에서 관리
 }
 
 // ---------- Gemini API ----------
@@ -255,20 +255,6 @@ function scheduleAI() {
       }, 2000 + i * 800 + Math.random() * 3000));
     });
   } else if (G.phase === 'day') {
-    dayPhaseStart = Date.now();
-    // 카운트다운 인터벌: 30초 동안 1초마다 힌트 업데이트, 만료 시 투표 버튼 활성화
-    dayCountdownInterval = setInterval(() => {
-      const remaining = Math.ceil((30000 - (Date.now() - dayPhaseStart)) / 1000);
-      const hintEl = document.getElementById('actionHint');
-      if (remaining > 0) {
-        if (hintEl && hintEl.textContent.includes('투표 가능')) return;
-        if (hintEl) hintEl.textContent = `⏳ ${remaining}초 후 투표 가능 — 자유롭게 토론하세요.`;
-      } else {
-        clearInterval(dayCountdownInterval); dayCountdownInterval = null;
-        if (lastState) renderPlayers(lastState); // 투표 버튼 활성화
-      }
-    }, 500);
-
     const chatCount = 2 + Math.floor(Math.random() * 3); // AI당 2~4회 채팅
     aiAlive.forEach((ai, idx) => {
       for (let i = 0; i < chatCount; i++) {
@@ -613,12 +599,32 @@ function flushLog(s) {
 
 function escapeHtml(t) { return t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-// 밤/라운드 전환 시 내 지목 초기화 + AI 스케줄
+// 밤/라운드 전환 시 내 지목 초기화 + 투표 락 + AI 스케줄
 let prevKey = '';
 const origOnState = net.onState;
 net.onState = (s) => {
   const key = s ? `${s.phase}:${s.round}` : '';
-  if (key !== prevKey) { myNightTarget = null; prevKey = key; }
+  if (key !== prevKey) {
+    myNightTarget = null;
+    prevKey = key;
+    // 낮 시작: 투표 락 타이머를 render(s) 보다 먼저 설정해야 버튼이 처음부터 잠김
+    if (dayCountdownInterval) { clearInterval(dayCountdownInterval); dayCountdownInterval = null; }
+    if (s?.phase === 'day') {
+      dayPhaseStart = Date.now();
+      dayCountdownInterval = setInterval(() => {
+        const remaining = Math.ceil((30000 - (Date.now() - dayPhaseStart)) / 1000);
+        if (remaining <= 0) {
+          clearInterval(dayCountdownInterval); dayCountdownInterval = null;
+          if (lastState) renderPlayers(lastState); // 투표 버튼 활성화
+        } else {
+          const hintEl = document.getElementById('actionHint');
+          if (hintEl) hintEl.textContent = `⏳ ${remaining}초 후 투표 가능 — 자유롭게 토론하세요.`;
+        }
+      }, 1000);
+    } else {
+      dayPhaseStart = 0; // 낮이 아닌 페이즈에서는 초기화
+    }
+  }
   origOnState(s);
   if (s && s.phase !== 'lobby' && s.phase !== 'over') scheduleAI();
 };
