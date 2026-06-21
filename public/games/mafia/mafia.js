@@ -69,6 +69,8 @@ function handlePrivate(msg) {
 // ---------- 렌더 ----------
 function render(s) {
   if (!s) return;
+  // 방 참가 이후엔 설명서 아코디언 닫기
+  document.querySelectorAll('.manual').forEach((d) => { d.removeAttribute('open'); d.classList.add('hidden'); });
   if (s.phase === 'lobby') { renderWait(s); return; }
   waitRoom.classList.add('hidden'); lobby.classList.add('hidden');
   game.classList.remove('hidden');

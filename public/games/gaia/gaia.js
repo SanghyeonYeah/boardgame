@@ -48,6 +48,7 @@ net.onPlayers = () => { if (net.state) render(net.state); };
 // ---------- 렌더 ----------
 function render(s) {
   if (!s) return;
+  document.querySelectorAll('.manual').forEach((d) => { d.removeAttribute('open'); d.classList.add('hidden'); });
   if (s.phase === 'pick') { renderPick(s); }
   else { renderPlay(s); }
   flushLog(s);

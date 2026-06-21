@@ -42,6 +42,7 @@ function myColor(s) {
 
 function render(s) {
   if (!s) return;
+  document.querySelectorAll('.manual').forEach((d) => { d.removeAttribute('open'); d.classList.add('hidden'); });
   const mc = myColor(s);
   $('roomBanner').innerHTML = `방 코드 <b>${net.code}</b> · 당신은 <b>${mc === 'w' ? '백 (가이아 수호자)' : mc === 'b' ? '흑' : '관전자'}</b>
     ${s.phase === 'wait' ? ' · 상대를 기다리는 중…' : ''}
