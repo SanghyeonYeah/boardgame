@@ -42,6 +42,42 @@
 
   <div class="wrap">
     <h1>♟️ 에너지 변형 체스</h1>
+
+    <!-- 설명서 -->
+    <details class="manual">
+      <summary><span class="arrow">▶</span> ♟️ 에너지 변형 체스 설명서</summary>
+      <div class="manual-body">
+        <h4>개요</h4>
+        <ul>
+          <li>표준 체스 규칙에 <b>에너지 시스템</b>이 추가된 2인 게임입니다.</li>
+          <li>상대의 <b>가이아(킹)</b>를 잡으면 승리합니다.</li>
+        </ul>
+
+        <h4>에너지 시스템</h4>
+        <ul>
+          <li>기물을 이동할 때마다 <b>기물 점수만큼 에너지를 소모</b>합니다.</li>
+          <li>에너지가 부족하면 해당 기물을 이동할 수 없습니다.</li>
+          <li><b>휴식(턴 넘기기)</b>: 이동하지 않고 턴을 넘기면 에너지 +3 충전. 최대 에너지는 30입니다.</li>
+        </ul>
+
+        <h4>기물별 에너지 비용</h4>
+        <div class="rule-grid">
+          <div class="rule-card"><b>가이아(킹) — 1</b>가장 중요한 기물, 소모량이 가장 낮음.</div>
+          <div class="rule-card"><b>초대형 인프라(퀸) — 9</b>강력하지만 에너지 소모가 큼.</div>
+          <div class="rule-card"><b>화력발전소(룩) — 5</b>직선 이동, 중간 소모.</div>
+          <div class="rule-card"><b>풍력(비숍) — 3</b>대각선 이동.</div>
+          <div class="rule-card"><b>원자력(나이트) — 3</b>L자 이동, 장애물 무시.</div>
+          <div class="rule-card"><b>전기(폰) — 1</b>전진만 가능, 소모량 최소.</div>
+        </div>
+
+        <h4>특수 칸</h4>
+        <ul>
+          <li><b>⚡ 에너지 필드</b>: 기물이 이 칸에 도착하면 에너지를 충전합니다.</li>
+          <li><b>💱 거래소</b>: 이 칸에 도착하면 상대에게 에너지·기물 교환을 제안할 수 있습니다.</li>
+        </ul>
+      </div>
+    </details>
+
     <div id="lobby"></div>
 
     <div id="game" class="hidden">

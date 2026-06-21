@@ -74,6 +74,24 @@ h1 { font-size: 30px; margin: 28px 0 6px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .col { display: flex; flex-direction: column; gap: 10px; }
 
+/* 게임 설명서 아코디언 */
+.manual { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 20px; background: var(--bg2); }
+.manual summary {
+  padding: 14px 18px; cursor: pointer; font-weight: 600; font-size: 15px;
+  list-style: none; display: flex; align-items: center; gap: 8px; user-select: none;
+}
+.manual summary::-webkit-details-marker { display: none; }
+.manual summary .arrow { font-size: 11px; color: var(--muted); transition: transform .2s; display: inline-block; }
+.manual[open] summary .arrow { transform: rotate(90deg); }
+.manual-body { padding: 2px 18px 18px; }
+.manual-body h4 { color: var(--accent2); margin: 14px 0 5px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; }
+.manual-body ul { margin: 0; padding-left: 18px; }
+.manual-body li { font-size: 13px; color: var(--muted); line-height: 1.75; }
+.manual-body li b { color: var(--text); }
+.manual-body .rule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 6px; }
+.manual-body .rule-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; font-size: 13px; }
+.manual-body .rule-card b { display: block; margin-bottom: 3px; color: var(--text); }
+
 label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 5px; }
 input[type=text], input[type=number], select {
   background: var(--bg); border: 1px solid var(--line); color: var(--text);
