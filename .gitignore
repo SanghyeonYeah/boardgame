@@ -144,3 +144,4 @@ vite.config.ts.timestamp-*
 
 # Generated at build time from env vars
 public/env.js
+public/js/env.js

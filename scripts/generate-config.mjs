@@ -28,7 +28,7 @@ const geminiKey = process.env.GEMINI_API_KEY || '';
 
 const out = fileURLToPath(new URL('../public/env.js', import.meta.url));
 const body = `// AUTO-GENERATED at build time from environment variables. Do not edit or commit.
-window.__SUPABASE__ = Object.freeze(${JSON.stringify({ url, key })});
+window.__ENV__ = ${JSON.stringify({ SUPABASE_URL: url, SUPABASE_ANON_KEY: key })};
 window.__GEMINI_KEY__ = ${JSON.stringify(geminiKey)};
 `;
 writeFileSync(out, body);
